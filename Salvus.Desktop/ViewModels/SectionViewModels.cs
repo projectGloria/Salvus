@@ -199,12 +199,33 @@ public sealed class DrivesViewModel : ViewModelBase
         private set => SetProperty(ref _statusMessage, value);
     }
 
+    public event Action<string>? TargetSelectedForRecovery;
+
     public ICommand RefreshCommand { get; }
+    public ICommand SelectPhysicalDiskCommand { get; }
+    public ICommand SelectVolumeCommand { get; }
 
     public DrivesViewModel(IEngineIpcClient ipcClient)
     {
         _ipcClient = ipcClient;
         RefreshCommand = new AsyncRelayCommand(RefreshAsync);
+        SelectPhysicalDiskCommand = new RelayCommand(param =>
+        {
+            if (param is StorageDeviceDto disk && !string.IsNullOrWhiteSpace(disk.DevicePath))
+            {
+                TargetSelectedForRecovery?.Invoke(disk.DevicePath);
+            }
+        });
+        SelectVolumeCommand = new RelayCommand(param =>
+        {
+            if (param is VolumeDto vol)
+            {
+                string rawPath = !string.IsNullOrWhiteSpace(vol.DriveLetter)
+                    ? @"\\.\" + vol.DriveLetter.TrimEnd('\\')
+                    : vol.VolumePath;
+                TargetSelectedForRecovery?.Invoke(rawPath);
+            }
+        });
     }
 
     public async Task RefreshAsync()
@@ -249,6 +270,8 @@ public sealed class DrivesViewModel : ViewModelBase
     }
 }
 
+public sealed record ScanTargetOption(string DisplayName, string TargetPath);
+
 public sealed class RecoveryViewModel : ViewModelBase
 {
     private readonly IEngineIpcClient _ipcClient;
@@ -256,14 +279,40 @@ public sealed class RecoveryViewModel : ViewModelBase
     private readonly ScanResultsViewModel _scanResults;
 
     private string _targetPath = string.Empty;
+    private string _directoryScope = string.Empty;
+    private ScanTargetOption? _selectedTargetOption;
     private bool _includeActiveFiles;
     private bool _isScanning;
-    private string _scanStatusMessage = "Select an NTFS volume path (e.g. \\\\.\\E:) or browse for a raw NTFS disk image (.raw / .img).";
+    private string _scanStatusMessage = "Select a drive/volume from the dropdown, pick a folder with 'Browse Folder...', or select a raw disk image (.raw / .img).";
+
+    public event Action? NavigateToResultsRequested;
+
+    public ObservableCollection<ScanTargetOption> AvailableTargets { get; } = new();
+    public ObservableCollection<PartitionEntryDto> DiscoveredPartitions { get; } = new();
+
+    public ScanTargetOption? SelectedTargetOption
+    {
+        get => _selectedTargetOption;
+        set
+        {
+            if (SetProperty(ref _selectedTargetOption, value) && value is not null)
+            {
+                TargetPath = value.TargetPath;
+                DirectoryScope = string.Empty;
+            }
+        }
+    }
 
     public string TargetPath
     {
         get => _targetPath;
         set => SetProperty(ref _targetPath, value);
+    }
+
+    public string DirectoryScope
+    {
+        get => _directoryScope;
+        set => SetProperty(ref _directoryScope, value);
     }
 
     public bool IncludeActiveFiles
@@ -284,12 +333,12 @@ public sealed class RecoveryViewModel : ViewModelBase
         private set => SetProperty(ref _scanStatusMessage, value);
     }
 
-    public ObservableCollection<PartitionEntryDto> DiscoveredPartitions { get; } = new();
-
+    public ICommand BrowseFolderCommand { get; }
     public ICommand BrowseImageCommand { get; }
     public ICommand StartNtfsQuickScanCommand { get; }
     public ICommand StartDeepScanCommand { get; }
     public ICommand AnalyzePartitionsCommand { get; }
+    public ICommand OpenResultsCommand { get; }
 
     public RecoveryViewModel(
         IEngineIpcClient ipcClient,
@@ -299,6 +348,32 @@ public sealed class RecoveryViewModel : ViewModelBase
         _ipcClient = ipcClient;
         _database = database;
         _scanResults = scanResults;
+
+        BrowseFolderCommand = new RelayCommand(_ =>
+        {
+            var dlg = new OpenFolderDialog
+            {
+                Title = "Select Directory to Scan (Scans Underlying Volume Read-Only)"
+            };
+            if (dlg.ShowDialog() == true && !string.IsNullOrWhiteSpace(dlg.FolderName))
+            {
+                string folder = dlg.FolderName;
+                string? root = Path.GetPathRoot(folder);
+                if (!string.IsNullOrWhiteSpace(root) && root.Length >= 2 && root[1] == ':')
+                {
+                    TargetPath = @"\\.\" + root[..2];
+                    string relative = folder.Length > 2 ? folder[2..] : string.Empty;
+                    DirectoryScope = relative;
+                    ScanStatusMessage = string.IsNullOrWhiteSpace(relative)
+                        ? $"Selected volume {TargetPath} (entire volume). Click Start Quick Scan."
+                        : $"Selected directory '{folder}' → Volume {TargetPath}, scoped to '{relative}'. Click Start Quick Scan.";
+                }
+                else
+                {
+                    ScanStatusMessage = "Please select a local drive folder (e.g. C:\\... or D:\\...).";
+                }
+            }
+        });
 
         BrowseImageCommand = new RelayCommand(_ =>
         {
@@ -310,12 +385,36 @@ public sealed class RecoveryViewModel : ViewModelBase
             if (dlg.ShowDialog() == true)
             {
                 TargetPath = dlg.FileName;
+                DirectoryScope = string.Empty;
             }
         });
 
         StartNtfsQuickScanCommand = new AsyncRelayCommand(StartNtfsQuickScanAsync);
         StartDeepScanCommand = new AsyncRelayCommand(StartDeepScanAsync);
         AnalyzePartitionsCommand = new AsyncRelayCommand(AnalyzePartitionsAsync);
+        OpenResultsCommand = new RelayCommand(_ => NavigateToResultsRequested?.Invoke());
+    }
+
+    public void SyncAvailableTargets(
+        IEnumerable<StorageDeviceDto> disks,
+        IEnumerable<VolumeDto> volumes)
+    {
+        AvailableTargets.Clear();
+        foreach (var vol in volumes)
+        {
+            string rawPath = !string.IsNullOrWhiteSpace(vol.DriveLetter)
+                ? @"\\.\" + vol.DriveLetter.TrimEnd('\\')
+                : vol.VolumePath;
+            AvailableTargets.Add(new ScanTargetOption(
+                $"Volume: {vol.DisplayName} — {vol.FileSystem} ({vol.TotalFormatted})",
+                rawPath));
+        }
+        foreach (var disk in disks)
+        {
+            AvailableTargets.Add(new ScanTargetOption(
+                $"Physical Disk: {disk.DeviceName} — {disk.ConnectionType} ({disk.CapacityFormatted})",
+                disk.DevicePath));
+        }
     }
 
     public async Task AnalyzePartitionsAsync()
@@ -438,6 +537,10 @@ public sealed class RecoveryViewModel : ViewModelBase
 
             NtfsQuickScanResult scanResult = await _ipcClient.QuickScanNtfsAsync(TargetPath.Trim(), IncludeActiveFiles);
             _scanResults.LoadScanResult(TargetPath.Trim(), scanResult);
+            if (!string.IsNullOrWhiteSpace(DirectoryScope))
+            {
+                _scanResults.SearchQuery = DirectoryScope.Trim();
+            }
 
             await _database.UpsertScanSessionAsync(new ScanSessionRecord(
                 SessionId: scanResult.SessionId,
@@ -450,11 +553,16 @@ public sealed class RecoveryViewModel : ViewModelBase
                 DiscoveredFileCount: scanResult.Files.Count));
 
             ScanStatusMessage =
-                $"NTFS Quick Scan complete: scanned {scanResult.MftRecordsScanned} MFT record(s), discovered {scanResult.Files.Count} file(s). Open Scan Results to inspect and recover.";
+                $"{scanResult.FileSystem} Quick Scan complete: scanned {scanResult.MftRecordsScanned} record(s), discovered {scanResult.Files.Count} file(s). Opening Scan Results...";
+            NavigateToResultsRequested?.Invoke();
         }
         catch (Exception ex)
         {
-            ScanStatusMessage = $"Scan failed: {ex.Message}";
+            string hint = ex.Message.Contains("AccessDenied", StringComparison.OrdinalIgnoreCase) ||
+                          ex.Message.Contains("error 5", StringComparison.OrdinalIgnoreCase)
+                ? " (Raw volume access on Windows requires running Salvus as Administrator.)"
+                : string.Empty;
+            ScanStatusMessage = $"Scan failed: {ex.Message}{hint}";
         }
         finally
         {

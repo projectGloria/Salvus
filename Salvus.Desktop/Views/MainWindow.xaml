@@ -169,12 +169,13 @@
               <!-- Header Row -->
               <Grid Margin="0,0,0,6">
                 <Grid.ColumnDefinitions>
-                  <ColumnDefinition Width="220" />
-                  <ColumnDefinition Width="130" />
-                  <ColumnDefinition Width="110" />
-                  <ColumnDefinition Width="85" />
+                  <ColumnDefinition Width="210" />
+                  <ColumnDefinition Width="125" />
                   <ColumnDefinition Width="105" />
+                  <ColumnDefinition Width="80" />
+                  <ColumnDefinition Width="90" />
                   <ColumnDefinition Width="*" />
+                  <ColumnDefinition Width="80" />
                 </Grid.ColumnDefinitions>
                 <TextBlock Grid.Column="0" Text="DEVICE / MODEL" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource TextMutedBrush}" />
                 <TextBlock Grid.Column="1" Text="TYPE / BUS" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource TextMutedBrush}" />
@@ -182,6 +183,7 @@
                 <TextBlock Grid.Column="3" Text="LAYOUT" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource TextMutedBrush}" />
                 <TextBlock Grid.Column="4" Text="SECTOR" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource TextMutedBrush}" />
                 <TextBlock Grid.Column="5" Text="ACCESS / PATH" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource TextMutedBrush}" />
+                <TextBlock Grid.Column="6" Text="ACTION" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource TextMutedBrush}" />
               </Grid>
 
               <ItemsControl ItemsSource="{Binding PhysicalDisks}">
@@ -190,12 +192,13 @@
                     <Border BorderBrush="{StaticResource BorderSubtleBrush}" BorderThickness="0,1,0,0" Padding="0,8">
                       <Grid>
                         <Grid.ColumnDefinitions>
-                          <ColumnDefinition Width="220" />
-                          <ColumnDefinition Width="130" />
-                          <ColumnDefinition Width="110" />
-                          <ColumnDefinition Width="85" />
+                          <ColumnDefinition Width="210" />
+                          <ColumnDefinition Width="125" />
                           <ColumnDefinition Width="105" />
+                          <ColumnDefinition Width="80" />
+                          <ColumnDefinition Width="90" />
                           <ColumnDefinition Width="*" />
+                          <ColumnDefinition Width="80" />
                         </Grid.ColumnDefinitions>
                         <StackPanel Grid.Column="0">
                           <TextBlock Text="{Binding DeviceName}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
@@ -212,6 +215,12 @@
                           <Run Text=" B" />
                         </TextBlock>
                         <TextBlock Grid.Column="5" Text="{Binding HealthStatus}" VerticalAlignment="Center" TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource TextSecondaryBrush}" />
+                        <Button Grid.Column="6"
+                                Content="Scan"
+                                Command="{Binding DataContext.SelectPhysicalDiskCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                CommandParameter="{Binding}"
+                                Style="{StaticResource SecondaryButtonStyle}"
+                                VerticalAlignment="Center" />
                       </Grid>
                     </Border>
                   </DataTemplate>
@@ -229,12 +238,13 @@
 
               <Grid Margin="0,0,0,6">
                 <Grid.ColumnDefinitions>
-                  <ColumnDefinition Width="200" />
-                  <ColumnDefinition Width="110" />
-                  <ColumnDefinition Width="110" />
-                  <ColumnDefinition Width="110" />
-                  <ColumnDefinition Width="130" />
+                  <ColumnDefinition Width="190" />
+                  <ColumnDefinition Width="100" />
+                  <ColumnDefinition Width="100" />
+                  <ColumnDefinition Width="100" />
+                  <ColumnDefinition Width="120" />
                   <ColumnDefinition Width="*" />
+                  <ColumnDefinition Width="80" />
                 </Grid.ColumnDefinitions>
                 <TextBlock Grid.Column="0" Text="VOLUME" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource TextMutedBrush}" />
                 <TextBlock Grid.Column="1" Text="FILE SYSTEM" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource TextMutedBrush}" />
@@ -242,6 +252,7 @@
                 <TextBlock Grid.Column="3" Text="AVAILABLE" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource TextMutedBrush}" />
                 <TextBlock Grid.Column="4" Text="PARENT DISK" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource TextMutedBrush}" />
                 <TextBlock Grid.Column="5" Text="VOLUME GUID PATH" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource TextMutedBrush}" />
+                <TextBlock Grid.Column="6" Text="ACTION" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource TextMutedBrush}" />
               </Grid>
 
               <ItemsControl ItemsSource="{Binding Volumes}">
@@ -250,19 +261,26 @@
                     <Border BorderBrush="{StaticResource BorderSubtleBrush}" BorderThickness="0,1,0,0" Padding="0,8">
                       <Grid>
                         <Grid.ColumnDefinitions>
-                          <ColumnDefinition Width="200" />
-                          <ColumnDefinition Width="110" />
-                          <ColumnDefinition Width="110" />
-                          <ColumnDefinition Width="110" />
-                          <ColumnDefinition Width="130" />
+                          <ColumnDefinition Width="190" />
+                          <ColumnDefinition Width="100" />
+                          <ColumnDefinition Width="100" />
+                          <ColumnDefinition Width="100" />
+                          <ColumnDefinition Width="120" />
                           <ColumnDefinition Width="*" />
+                          <ColumnDefinition Width="80" />
                         </Grid.ColumnDefinitions>
-                        <TextBlock Grid.Column="0" Text="{Binding DisplayName}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
-                        <TextBlock Grid.Column="1" Text="{Binding FileSystem}" Foreground="{StaticResource TextSecondaryBrush}" />
-                        <TextBlock Grid.Column="2" Text="{Binding TotalFormatted}" />
-                        <TextBlock Grid.Column="3" Text="{Binding AvailableFormatted}" Foreground="{StaticResource TextSecondaryBrush}" />
-                        <TextBlock Grid.Column="4" Text="{Binding ParentDiskDisplay}" Foreground="{StaticResource TextSecondaryBrush}" />
-                        <TextBlock Grid.Column="5" Text="{Binding VolumePath}" FontSize="11" Foreground="{StaticResource TextMutedBrush}" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Grid.Column="0" Text="{Binding DisplayName}" FontWeight="SemiBold" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Grid.Column="1" Text="{Binding FileSystem}" VerticalAlignment="Center" Foreground="{StaticResource TextSecondaryBrush}" />
+                        <TextBlock Grid.Column="2" Text="{Binding TotalFormatted}" VerticalAlignment="Center" />
+                        <TextBlock Grid.Column="3" Text="{Binding AvailableFormatted}" VerticalAlignment="Center" Foreground="{StaticResource TextSecondaryBrush}" />
+                        <TextBlock Grid.Column="4" Text="{Binding ParentDiskDisplay}" VerticalAlignment="Center" Foreground="{StaticResource TextSecondaryBrush}" />
+                        <TextBlock Grid.Column="5" Text="{Binding VolumePath}" VerticalAlignment="Center" FontSize="11" Foreground="{StaticResource TextMutedBrush}" TextTrimming="CharacterEllipsis" />
+                        <Button Grid.Column="6"
+                                Content="Scan"
+                                Command="{Binding DataContext.SelectVolumeCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                CommandParameter="{Binding}"
+                                Style="{StaticResource SecondaryButtonStyle}"
+                                VerticalAlignment="Center" />
                       </Grid>
                     </Border>
                   </DataTemplate>
@@ -276,44 +294,67 @@
 
     <!-- 3. Recovery -->
     <DataTemplate DataType="{x:Type vm:RecoveryViewModel}">
-      <StackPanel>
-        <Border Style="{StaticResource PanelBorderStyle}" Margin="0,0,0,12">
-          <StackPanel>
-            <TextBlock Text="Target NTFS Volume or Raw Disk Image (Strictly Read-Only)" FontSize="15" FontWeight="SemiBold" Margin="0,0,0,8" />
-            <Grid Margin="0,0,0,10">
-              <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
-              </Grid.ColumnDefinitions>
-              <TextBox Grid.Column="0"
-                       Text="{Binding TargetPath, UpdateSourceTrigger=PropertyChanged}"
-                       Margin="0,0,8,0" />
-              <Button Grid.Column="1"
-                      Content="Browse Image..."
-                      Command="{Binding BrowseImageCommand}"
-                      Style="{StaticResource SecondaryButtonStyle}" />
-            </Grid>
+      <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="0,0,0,16">
+          <Border Style="{StaticResource PanelBorderStyle}" Margin="0,0,0,12">
+            <StackPanel>
+              <TextBlock Text="Select Target Drive, Directory, or Raw Disk Image (Strictly Read-Only)" FontSize="15" FontWeight="SemiBold" Margin="0,0,0,10" />
 
-            <CheckBox Content="Include active (non-deleted) files in scan results"
-                      IsChecked="{Binding IncludeActiveFiles}"
-                      Foreground="{StaticResource TextSecondaryBrush}"
-                      Margin="0,0,0,14" />
+              <TextBlock Text="Connected Drives &amp; Volumes" Foreground="{StaticResource TextSecondaryBrush}" FontSize="12" Margin="0,0,0,4" />
+              <ComboBox ItemsSource="{Binding AvailableTargets}"
+                        SelectedItem="{Binding SelectedTargetOption, Mode=TwoWay}"
+                        DisplayMemberPath="DisplayName"
+                        Margin="0,0,0,10" />
 
-            <StackPanel Orientation="Horizontal">
-              <Button Content="Start Quick Scan (NTFS / FAT32 / exFAT)"
-                      Command="{Binding StartNtfsQuickScanCommand}"
-                      Style="{StaticResource PrimaryButtonStyle}"
-                      Margin="0,0,8,0" />
-              <Button Content="Start Deep Scan (Carving)"
-                      Command="{Binding StartDeepScanCommand}"
-                      Style="{StaticResource SecondaryButtonStyle}"
-                      Margin="0,0,8,0" />
-              <Button Content="Partition Recovery (Non-Destructive)"
-                      Command="{Binding AnalyzePartitionsCommand}"
-                      Style="{StaticResource SecondaryButtonStyle}" />
+              <TextBlock Text="Target Volume / Device / Image Path" Foreground="{StaticResource TextSecondaryBrush}" FontSize="12" Margin="0,0,0,4" />
+              <Grid Margin="0,0,0,10">
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*" />
+                  <ColumnDefinition Width="Auto" />
+                  <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBox Grid.Column="0"
+                         Text="{Binding TargetPath, UpdateSourceTrigger=PropertyChanged}"
+                         Margin="0,0,8,0" />
+                <Button Grid.Column="1"
+                        Content="Browse Folder..."
+                        Command="{Binding BrowseFolderCommand}"
+                        Style="{StaticResource SecondaryButtonStyle}"
+                        Margin="0,0,8,0" />
+                <Button Grid.Column="2"
+                        Content="Browse Image..."
+                        Command="{Binding BrowseImageCommand}"
+                        Style="{StaticResource SecondaryButtonStyle}" />
+              </Grid>
+
+              <TextBlock Text="Optional Directory Scope Filter (auto-filled when you click Browse Folder...)" Foreground="{StaticResource TextSecondaryBrush}" FontSize="12" Margin="0,0,0,4" />
+              <TextBox Text="{Binding DirectoryScope, UpdateSourceTrigger=PropertyChanged}"
+                       Margin="0,0,0,10" />
+
+              <CheckBox Content="Include active (non-deleted) files in scan results"
+                        IsChecked="{Binding IncludeActiveFiles}"
+                        Foreground="{StaticResource TextSecondaryBrush}"
+                        Margin="0,0,0,14" />
+
+              <StackPanel Orientation="Horizontal">
+                <Button Content="Start Quick Scan (NTFS / FAT32 / exFAT)"
+                        Command="{Binding StartNtfsQuickScanCommand}"
+                        Style="{StaticResource PrimaryButtonStyle}"
+                        Margin="0,0,8,0" />
+                <Button Content="Start Deep Scan (Carving)"
+                        Command="{Binding StartDeepScanCommand}"
+                        Style="{StaticResource SecondaryButtonStyle}"
+                        Margin="0,0,8,0" />
+                <Button Content="Partition Recovery (Non-Destructive)"
+                        Command="{Binding AnalyzePartitionsCommand}"
+                        Style="{StaticResource SecondaryButtonStyle}"
+                        Margin="0,0,8,0" />
+                <Button Content="Open Scan Results"
+                        Command="{Binding OpenResultsCommand}"
+                        Style="{StaticResource SecondaryButtonStyle}" />
+              </StackPanel>
             </StackPanel>
-          </StackPanel>
-        </Border>
+          </Border>
 
         <Border Style="{StaticResource PanelBorderStyle}" Margin="0,0,0,12">
           <StackPanel>
@@ -349,7 +390,8 @@
             </ItemsControl>
           </StackPanel>
         </Border>
-      </StackPanel>
+        </StackPanel>
+      </ScrollViewer>
     </DataTemplate>
 
     <!-- 4. Scan Results -->

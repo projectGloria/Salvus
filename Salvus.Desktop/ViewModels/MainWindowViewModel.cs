@@ -47,6 +47,7 @@ public sealed class MainWindowViewModel : ViewModelBase
 
     public DashboardViewModel Dashboard { get; }
     public DrivesViewModel Drives { get; }
+    public RecoveryViewModel Recovery { get; }
     public RecoveryHistoryViewModel RecoveryHistory { get; }
     public SettingsViewModel Settings { get; }
     public AboutViewModel About { get; }
@@ -63,6 +64,7 @@ public sealed class MainWindowViewModel : ViewModelBase
     {
         Dashboard = dashboard;
         Drives = drives;
+        Recovery = recovery;
         RecoveryHistory = recoveryHistory;
         Settings = settings;
         About = about;
@@ -80,6 +82,26 @@ public sealed class MainWindowViewModel : ViewModelBase
         };
 
         _selectedNavigationItem = NavigationItems[0];
+
+        Drives.TargetSelectedForRecovery += targetPath =>
+        {
+            Recovery.TargetPath = targetPath;
+            Recovery.DirectoryScope = string.Empty;
+            var recNav = NavigationItems.FirstOrDefault(n => n.Key == "recovery");
+            if (recNav is not null)
+            {
+                SelectedNavigationItem = recNav;
+            }
+        };
+
+        Recovery.NavigateToResultsRequested += () =>
+        {
+            var resNav = NavigationItems.FirstOrDefault(n => n.Key == "results");
+            if (resNav is not null)
+            {
+                SelectedNavigationItem = resNav;
+            }
+        };
 
         SelectSectionCommand = new RelayCommand(param =>
         {
@@ -102,6 +124,7 @@ public sealed class MainWindowViewModel : ViewModelBase
     {
         await Dashboard.RefreshAsync();
         await Drives.RefreshAsync();
+        Recovery.SyncAvailableTargets(Drives.PhysicalDisks, Drives.Volumes);
         await RecoveryHistory.RefreshAsync();
         await Settings.LoadAsync();
         await About.RefreshEngineInfoAsync();
