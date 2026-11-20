@@ -1,0 +1,55 @@
+name: Salvus CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-and-test:
+    name: Windows x64 (C++20 Engine + .NET 10 WPF)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Verify mandatory official branding assets
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "Salvus.ico")) { throw "Missing mandatory root asset: Salvus.ico" }
+          if (-not (Test-Path "Salvus.png")) { throw "Missing mandatory root asset: Salvus.png" }
+          Write-Host "Verified Salvus.ico and Salvus.png in repository root."
+
+      - name: Configure Salvus.Engine (CMake + MSVC x64)
+        shell: pwsh
+        run: |
+          cmake -S Salvus.Engine -B Salvus.Engine/build -G "Visual Studio 17 2022" -A x64 -DSALVUS_BUILD_TESTS=ON
+
+      - name: Build Salvus.Engine (Release)
+        shell: pwsh
+        run: |
+          cmake --build Salvus.Engine/build --config Release --parallel
+
+      - name: Run Salvus.Engine GoogleTest suite
+        shell: pwsh
+        run: |
+          ctest --test-dir Salvus.Engine/build -C Release --output-on-failure
+
+      - name: Setup .NET 10 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore .NET solution
+        shell: pwsh
+        run: dotnet restore Salvus.sln
+
+      - name: Build .NET solution (Release, warnings as errors)
+        shell: pwsh
+        run: dotnet build Salvus.sln -c Release --no-restore
+
+      - name: Run .NET unit and live IPC integration tests
+        shell: pwsh
+        run: dotnet test Salvus.sln -c Release --no-build --verbosity normal

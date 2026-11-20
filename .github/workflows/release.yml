@@ -1,0 +1,70 @@
+name: Salvus Release Packaging
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+
+jobs:
+  package-windows-x64:
+    name: Package Windows x64 Release + SBOM
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Verify mandatory official branding assets
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "Salvus.ico")) { throw "Missing mandatory root asset: Salvus.ico" }
+          if (-not (Test-Path "Salvus.png")) { throw "Missing mandatory root asset: Salvus.png" }
+
+      - name: Build Salvus.Engine (Release x64)
+        shell: pwsh
+        run: |
+          cmake -S Salvus.Engine -B Salvus.Engine/build -G "Visual Studio 17 2022" -A x64 -DSALVUS_BUILD_TESTS=ON
+          cmake --build Salvus.Engine/build --config Release --parallel
+          ctest --test-dir Salvus.Engine/build -C Release --output-on-failure
+
+      - name: Setup .NET 10 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Publish Salvus.Desktop (win-x64)
+        shell: pwsh
+        run: |
+          dotnet publish Salvus.Desktop/Salvus.Desktop.csproj -c Release -r win-x64 --self-contained false -o artifacts/salvus-win-x64
+          Copy-Item "Salvus.Engine/build/Release/Salvus.Engine.exe" "artifacts/salvus-win-x64/Salvus.Engine.exe" -Force
+          Copy-Item "LICENSE" "artifacts/salvus-win-x64/LICENSE" -Force
+          Copy-Item "Salvus.ico" "artifacts/salvus-win-x64/Salvus.ico" -Force
+          Copy-Item "Salvus.png" "artifacts/salvus-win-x64/Salvus.png" -Force
+
+      - name: Generate SPDX Software Bill of Materials (SBOM)
+        uses: anchore/sbom-action@v0
+        with:
+          path: artifacts/salvus-win-x64
+          format: spdx-json
+          output-file: artifacts/salvus-win-x64.spdx.json
+
+      - name: Create archive and SHA-256 checksums
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "artifacts/salvus-win-x64/*" -DestinationPath "artifacts/Salvus-win-x64.zip" -Force
+          $zipHash = (Get-FileHash "artifacts/Salvus-win-x64.zip" -Algorithm SHA256).Hash
+          $sbomHash = (Get-FileHash "artifacts/salvus-win-x64.spdx.json" -Algorithm SHA256).Hash
+          @(
+            "$zipHash  Salvus-win-x64.zip"
+            "$sbomHash  salvus-win-x64.spdx.json"
+          ) | Set-Content -Path "artifacts/SHA256SUMS.txt" -Encoding utf8
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: salvus-win-x64-release
+          path: |
+            artifacts/Salvus-win-x64.zip
+            artifacts/salvus-win-x64.spdx.json
+            artifacts/SHA256SUMS.txt

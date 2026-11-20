@@ -1,0 +1,66 @@
+# Build outputs
+bin/
+obj/
+build/
+out/
+x64/
+x86/
+Debug/
+Release/
+RelWithDebInfo/
+MinSizeRel/
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+CMakeUserPresets.json
+cmake_install.cmake
+install_manifest.txt
+CTestTestfile.cmake
+Testing/
+_deps/
+
+# Visual Studio & Rider & VS Code
+.vs/
+.idea/
+*.user
+*.suo
+*.sln.docstates
+*.vcxproj.filters
+*.log
+*.tlog
+*.pdb
+*.ilk
+*.exp
+*.lib
+*.obj
+*.exe
+*.dll
+
+# .NET / NuGet
+*.nupkg
+*.snupkg
+project.lock.json
+project.fragment.lock.json
+artifacts/
+TestResults/
+coverage/
+
+# SQLite local databases
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# Test disk images (never commit large binary images)
+*.img
+*.raw
+*.vhd
+*.vhdx
+*.dd
+
+# OS files
+Thumbs.db
+Desktop.ini
+.DS_Store
