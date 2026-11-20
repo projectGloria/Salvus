@@ -33,7 +33,38 @@ public sealed class EngineIpcIntegrationTests
         Assert.True(caps.DeviceEnumeration.Implemented);
         Assert.True(caps.RawDiskReadOnly.Implemented);
         Assert.True(caps.NtfsRecovery.Implemented);
-        Assert.False(caps.DeepSignatureCarving.Implemented);
+        Assert.True(caps.DeepSignatureCarving.Implemented);
+        Assert.False(caps.Fat32ExfatGptMbr.Implemented);
+
+        // Live Deep Scan + Safe Preview + Recover round-trip on disposable raw image
+        string tempRaw = Path.Combine(Path.GetTempPath(), $"salvus_ipc_deep_{Guid.NewGuid():N}.raw");
+        string tempRecovered = Path.Combine(Path.GetTempPath(), $"salvus_ipc_rec_{Guid.NewGuid():N}.pdf");
+        try
+        {
+            byte[] raw = new byte[16384];
+            byte[] pdfBytes = System.Text.Encoding.ASCII.GetBytes(
+                "%PDF-1.7\n1 0 obj\n<< /Type /Catalog >>\nendobj\n012345678901234567890123456789\n%%EOF");
+            Buffer.BlockCopy(pdfBytes, 0, raw, 2048, pdfBytes.Length);
+            await File.WriteAllBytesAsync(tempRaw, raw);
+
+            var deepRes = await client.DeepScanAsync(tempRaw);
+            Assert.Single(deepRes.Files);
+            Assert.EndsWith(".pdf", deepRes.Files[0].FileName);
+            Assert.Equal("Low", deepRes.Files[0].Confidence);
+
+            var preview = await client.GetFilePreviewAsync(deepRes.SessionId, deepRes.Files[0].RecordNumber);
+            Assert.Equal("text", preview.PreviewKind);
+            Assert.Contains("%PDF-1.7", preview.TextContent);
+
+            var rec = await client.RecoverFileAsync(deepRes.SessionId, deepRes.Files[0].RecordNumber, tempRecovered);
+            Assert.Equal((ulong)pdfBytes.Length, rec.BytesWritten);
+            Assert.Equal(pdfBytes, await File.ReadAllBytesAsync(tempRecovered));
+        }
+        finally
+        {
+            if (File.Exists(tempRaw)) File.Delete(tempRaw);
+            if (File.Exists(tempRecovered)) File.Delete(tempRecovered);
+        }
 
         var devices = await client.ListDevicesAsync();
         Assert.NotEmpty(devices.Devices);

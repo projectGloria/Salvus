@@ -5,7 +5,9 @@
 #include "filesystem/filesystem_detector.hpp"
 #include "filesystem/ntfs_parser.hpp"
 #include "recovery/recovery_components.hpp"
+#include "scanner/deep_scanner.hpp"
 
+#include <algorithm>
 #include <atomic>
 #include <charconv>
 #include <chrono>
@@ -247,6 +249,54 @@ std::string ExtractJsonObjectSlice(std::string_view json, std::size_t startPos) 
     return "{}";
 }
 
+std::string Base64Encode(std::span<const std::uint8_t> data) {
+    static constexpr char kTable[] =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::string out;
+    out.reserve(((data.size() + 2U) / 3U) * 4U);
+    std::size_t i = 0;
+    while (i + 3U <= data.size()) {
+        const std::uint32_t triple =
+            (static_cast<std::uint32_t>(data[i]) << 16U) |
+            (static_cast<std::uint32_t>(data[i + 1U]) << 8U) |
+            static_cast<std::uint32_t>(data[i + 2U]);
+        out.push_back(kTable[(triple >> 18U) & 0x3FU]);
+        out.push_back(kTable[(triple >> 12U) & 0x3FU]);
+        out.push_back(kTable[(triple >> 6U) & 0x3FU]);
+        out.push_back(kTable[triple & 0x3FU]);
+        i += 3U;
+    }
+    const std::size_t rem = data.size() - i;
+    if (rem == 1U) {
+        const std::uint32_t v = static_cast<std::uint32_t>(data[i]) << 16U;
+        out.push_back(kTable[(v >> 18U) & 0x3FU]);
+        out.push_back(kTable[(v >> 12U) & 0x3FU]);
+        out.push_back('=');
+        out.push_back('=');
+    } else if (rem == 2U) {
+        const std::uint32_t v =
+            (static_cast<std::uint32_t>(data[i]) << 16U) |
+            (static_cast<std::uint32_t>(data[i + 1U]) << 8U);
+        out.push_back(kTable[(v >> 18U) & 0x3FU]);
+        out.push_back(kTable[(v >> 12U) & 0x3FU]);
+        out.push_back(kTable[(v >> 6U) & 0x3FU]);
+        out.push_back('=');
+    }
+    return out;
+}
+
+std::string LowercaseExtension(const std::string& fileName) {
+    const auto dot = fileName.rfind('.');
+    if (dot == std::string::npos) {
+        return {};
+    }
+    std::string ext = fileName.substr(dot + 1U);
+    std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+    });
+    return ext;
+}
+
 } // namespace
 
 Result<std::vector<std::uint8_t>> EncodeIpcFrame(std::string_view jsonPayload) {
@@ -424,7 +474,7 @@ DispatchResult CommandDispatcher::Dispatch(const IpcRequest& request) const {
             "\"deviceEnumeration\":{\"implemented\":true,\"phase\":\"Phase 2\",\"notes\":\"Active native Windows physical disk and logical volume enumeration.\"},"
             "\"rawDiskReadOnly\":{\"implemented\":true,\"phase\":\"Phase 2\",\"notes\":\"Active strictly read-only sector/byte reader for disks, volumes, and raw images.\"},"
             "\"ntfsRecovery\":{\"implemented\":true,\"phase\":\"Phase 3\",\"notes\":\"Active NTFS boot sector, MFT parsing, deleted file detection, fragmented extent reconstruction, and separate-destination recovery.\"},"
-            "\"deepSignatureCarving\":{\"implemented\":false,\"phase\":\"Phase 4\",\"notes\":\"Scheduled for Phase 4 (Deep Scanning).\"},"
+            "\"deepSignatureCarving\":{\"implemented\":true,\"phase\":\"Phase 4\",\"notes\":\"Active signature database (27+ built-in file types), bounded streaming carving, boundary detection, and safe non-executing previews.\"},"
             "\"fat32ExfatGptMbr\":{\"implemented\":false,\"phase\":\"Phase 5\",\"notes\":\"Scheduled for Phase 5 (Additional File Systems).\"},"
             "\"diskImaging\":{\"implemented\":false,\"phase\":\"Phase 6\",\"notes\":\"Scheduled for Phase 6 (Professional Features).\"}"
             "}";
@@ -680,6 +730,246 @@ DispatchResult CommandDispatcher::Dispatch(const IpcRequest& request) const {
                 << "\"destinationPath\":\"" << EscapeJsonString(destRes.value()) << "\","
                 << "\"fileName\":\"" << EscapeJsonString(fileEntry.fileName) << "\""
                 << "}";
+        result.response.ok = true;
+        result.response.payloadJson = payload.str();
+        return result;
+    }
+
+    if (request.command == "deep_scan") {
+        const auto targetPos = FindTopLevelJsonValueStart(request.payloadJson, "targetPath");
+        if (!targetPos) {
+            result.response.ok = false;
+            result.response.errorCode = "ERR_INVALID_ARGUMENT";
+            result.response.errorMessage = "deep_scan requires payload.targetPath.";
+            return result;
+        }
+        const auto targetRes = ExtractJsonStringValue(request.payloadJson, *targetPos);
+        if (!targetRes.ok() || targetRes.value().empty()) {
+            result.response.ok = false;
+            result.response.errorCode = "ERR_INVALID_ARGUMENT";
+            result.response.errorMessage = "Invalid payload.targetPath.";
+            return result;
+        }
+
+        salvus::scanner::DeepScanOptions scanOpts{};
+        if (const auto maxPos = FindTopLevelJsonValueStart(request.payloadJson, "maxFiles")) {
+            const auto maxRes = ExtractJsonUint64Value(request.payloadJson, *maxPos);
+            if (maxRes.ok() && maxRes.value() > 0ULL) {
+                scanOpts.maxFiles = maxRes.value();
+            }
+        }
+
+        const std::wstring wideTarget = Utf8ToWide(targetRes.value());
+        salvus::disk::DiskReader reader;
+        const auto openRes = reader.OpenReadOnly(wideTarget);
+        if (!openRes.ok()) {
+            result.response.ok = false;
+            result.response.errorCode =
+                openRes.error().code == StatusCode::AccessDenied ? "ERR_ACCESS_DENIED" : "ERR_OPEN_TARGET";
+            result.response.errorMessage = openRes.error().message;
+            return result;
+        }
+
+        salvus::scanner::DeepScanner scanner;
+        const auto scanRes = scanner.Scan(reader, scanOpts);
+        if (!scanRes.ok()) {
+            result.response.ok = false;
+            result.response.errorCode = "ERR_DEEP_SCAN";
+            result.response.errorMessage = scanRes.error().message;
+            return result;
+        }
+
+        const std::uint64_t seq = sessions_->nextSessionSeq.fetch_add(1ULL);
+        const std::string sessionId = "deep-" + std::to_string(GetCurrentProcessIdSafe()) + "-" + std::to_string(seq);
+
+        SessionStore::CachedNtfsSession cached{};
+        cached.targetPath = wideTarget;
+
+        std::ostringstream payload;
+        payload << "{"
+                << "\"sessionId\":\"" << EscapeJsonString(sessionId) << "\","
+                << "\"fileSystem\":\"RAW (Signature Carving)\","
+                << "\"mftRecordsScanned\":" << scanRes.value().bytesScanned << ","
+                << "\"clusterSizeBytes\":" << reader.geometry().bytesPerSector << ","
+                << "\"files\":[";
+
+        const auto& carved = scanRes.value().files;
+        for (std::size_t i = 0; i < carved.size(); ++i) {
+            const auto& c = carved[i];
+            if (i > 0) {
+                payload << ",";
+            }
+            const std::string virtualPath = "\\[Carved]\\" + c.category + "\\" + c.fileName;
+            payload << "{"
+                    << "\"recordNumber\":" << c.carvedId << ","
+                    << "\"fileName\":\"" << EscapeJsonString(c.fileName) << "\","
+                    << "\"fullPath\":\"" << EscapeJsonString(virtualPath) << "\","
+                    << "\"sizeBytes\":" << c.estimatedSizeBytes << ","
+                    << "\"isDeleted\":true,"
+                    << "\"isResident\":false,"
+                    << "\"extentCount\":1,"
+                    << "\"createdUtc\":\"\","
+                    << "\"modifiedUtc\":\"\","
+                    << "\"confidence\":\"" << EscapeJsonString(salvus::filesystem::RecoveryConfidenceToString(c.confidence)) << "\","
+                    << "\"confidenceReason\":\"" << EscapeJsonString(c.confidenceReason) << "\","
+                    << "\"alternateDataStreams\":[]"
+                    << "}";
+
+            salvus::filesystem::NtfsFileEntry cachedEntry{};
+            cachedEntry.recordNumber = c.carvedId;
+            cachedEntry.fileName = c.fileName;
+            cachedEntry.fullPath = virtualPath;
+            cachedEntry.isDeleted = true;
+            cachedEntry.isResident = false;
+            cachedEntry.fileSizeBytes = c.estimatedSizeBytes;
+            cachedEntry.confidence = c.confidence;
+            cachedEntry.confidenceReason = c.confidenceReason;
+            cachedEntry.dataExtents.push_back(salvus::recovery::FileExtent{
+                c.diskOffsetBytes, c.estimatedSizeBytes, false});
+            cached.entriesByRecord.emplace(c.carvedId, std::move(cachedEntry));
+        }
+        payload << "]}";
+
+        {
+            std::lock_guard<std::mutex> lock(sessions_->mutex);
+            sessions_->sessions[sessionId] = std::move(cached);
+        }
+
+        result.response.ok = true;
+        result.response.payloadJson = payload.str();
+        return result;
+    }
+
+    if (request.command == "get_file_preview") {
+        const auto sessPos = FindTopLevelJsonValueStart(request.payloadJson, "sessionId");
+        const auto recPos = FindTopLevelJsonValueStart(request.payloadJson, "recordNumber");
+        if (!sessPos || !recPos) {
+            result.response.ok = false;
+            result.response.errorCode = "ERR_INVALID_ARGUMENT";
+            result.response.errorMessage = "get_file_preview requires sessionId and recordNumber.";
+            return result;
+        }
+        const auto sessRes = ExtractJsonStringValue(request.payloadJson, *sessPos);
+        const auto recRes = ExtractJsonUint64Value(request.payloadJson, *recPos);
+        if (!sessRes.ok() || !recRes.ok()) {
+            result.response.ok = false;
+            result.response.errorCode = "ERR_INVALID_ARGUMENT";
+            result.response.errorMessage = "Malformed get_file_preview arguments.";
+            return result;
+        }
+
+        std::wstring sourceTarget;
+        salvus::filesystem::NtfsFileEntry fileEntry{};
+        {
+            std::lock_guard<std::mutex> lock(sessions_->mutex);
+            const auto sIt = sessions_->sessions.find(sessRes.value());
+            if (sIt == sessions_->sessions.end()) {
+                result.response.ok = false;
+                result.response.errorCode = "ERR_SESSION_NOT_FOUND";
+                result.response.errorMessage = "Scan session not found.";
+                return result;
+            }
+            const auto eIt = sIt->second.entriesByRecord.find(recRes.value());
+            if (eIt == sIt->second.entriesByRecord.end()) {
+                result.response.ok = false;
+                result.response.errorCode = "ERR_RECORD_NOT_FOUND";
+                result.response.errorMessage = "File record not found.";
+                return result;
+            }
+            sourceTarget = sIt->second.targetPath;
+            fileEntry = eIt->second;
+        }
+
+        const std::string ext = LowercaseExtension(fileEntry.fileName);
+        const bool isImage = (ext == "jpg" || ext == "jpeg" || ext == "png" ||
+                              ext == "gif" || ext == "bmp" || ext == "ico");
+        const bool isText = (ext == "txt" || ext == "log" || ext == "md" || ext == "json" ||
+                             ext == "xml" || ext == "csv" || ext == "ini" || ext == "cfg" ||
+                             ext == "rtf" || ext == "c" || ext == "cpp" || ext == "h" || ext == "cs");
+        const bool isPdf = (ext == "pdf");
+
+        if (!isImage && !isText && !isPdf) {
+            result.response.ok = true;
+            result.response.payloadJson =
+                "{\"previewKind\":\"unsupported\",\"textContent\":\"Safe preview is supported for images, plain text, and PDF metadata only. Recovered files are never executed.\",\"base64Bytes\":\"\",\"bytesRead\":0,\"truncated\":false}";
+            return result;
+        }
+
+        const std::uint64_t previewLimit = isImage ? (512ULL * 1024ULL) : (64ULL * 1024ULL);
+        const std::uint64_t bytesToRead = (std::min)(fileEntry.fileSizeBytes, previewLimit);
+        const bool truncated = fileEntry.fileSizeBytes > previewLimit;
+
+        std::vector<std::uint8_t> previewBytes;
+        if (fileEntry.isResident) {
+            const auto count = static_cast<std::size_t>((std::min)(
+                static_cast<std::uint64_t>(fileEntry.residentData.size()), bytesToRead));
+            previewBytes.assign(fileEntry.residentData.begin(), fileEntry.residentData.begin() + count);
+        } else if (bytesToRead > 0ULL) {
+            salvus::disk::DiskReader reader;
+            const auto openRes = reader.OpenReadOnly(sourceTarget);
+            if (!openRes.ok()) {
+                result.response.ok = false;
+                result.response.errorCode = "ERR_OPEN_TARGET";
+                result.response.errorMessage = openRes.error().message;
+                return result;
+            }
+            salvus::recovery::FileReconstructor reconstructor;
+            const auto bufRes = reconstructor.ReconstructToBuffer(
+                reader, fileEntry.dataExtents, bytesToRead, previewLimit);
+            if (!bufRes.ok()) {
+                result.response.ok = false;
+                result.response.errorCode = "ERR_PREVIEW_READ";
+                result.response.errorMessage = bufRes.error().message;
+                return result;
+            }
+            previewBytes = std::move(bufRes.value());
+        }
+
+        std::ostringstream payload;
+        if (isImage) {
+            payload << "{"
+                    << "\"previewKind\":\"image\","
+                    << "\"textContent\":\"\","
+                    << "\"base64Bytes\":\"" << Base64Encode(previewBytes) << "\","
+                    << "\"bytesRead\":" << previewBytes.size() << ","
+                    << "\"truncated\":" << (truncated ? "true" : "false")
+                    << "}";
+        } else if (isPdf) {
+            std::string headerLine = "PDF Document (non-executing metadata preview)";
+            if (previewBytes.size() >= 8U && std::memcmp(previewBytes.data(), "%PDF-", 5U) == 0) {
+                std::size_t nl = 5U;
+                while (nl < previewBytes.size() && nl < 24U && previewBytes[nl] != '\r' && previewBytes[nl] != '\n') {
+                    ++nl;
+                }
+                headerLine = "PDF Header: " + std::string(reinterpret_cast<const char*>(previewBytes.data()), nl) +
+                             " | Declared size: " + std::to_string(fileEntry.fileSizeBytes) + " bytes";
+            }
+            payload << "{"
+                    << "\"previewKind\":\"text\","
+                    << "\"textContent\":\"" << EscapeJsonString(headerLine) << "\","
+                    << "\"base64Bytes\":\"\","
+                    << "\"bytesRead\":" << previewBytes.size() << ","
+                    << "\"truncated\":" << (truncated ? "true" : "false")
+                    << "}";
+        } else {
+            std::string sanitized;
+            sanitized.reserve(previewBytes.size());
+            for (const std::uint8_t b : previewBytes) {
+                if (b == '\r' || b == '\n' || b == '\t' || (b >= 0x20U && b <= 0x7EU)) {
+                    sanitized.push_back(static_cast<char>(b));
+                } else {
+                    sanitized.push_back('.');
+                }
+            }
+            payload << "{"
+                    << "\"previewKind\":\"text\","
+                    << "\"textContent\":\"" << EscapeJsonString(sanitized) << "\","
+                    << "\"base64Bytes\":\"\","
+                    << "\"bytesRead\":" << previewBytes.size() << ","
+                    << "\"truncated\":" << (truncated ? "true" : "false")
+                    << "}";
+        }
+
         result.response.ok = true;
         result.response.payloadJson = payload.str();
         return result;

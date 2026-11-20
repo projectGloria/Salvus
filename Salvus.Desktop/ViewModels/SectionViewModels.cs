@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Windows.Input;
+using System.Windows.Media.Imaging;
 using Microsoft.Win32;
 using Salvus.Data;
 using Salvus.Desktop.Services;
@@ -285,6 +286,7 @@ public sealed class RecoveryViewModel : ViewModelBase
 
     public ICommand BrowseImageCommand { get; }
     public ICommand StartNtfsQuickScanCommand { get; }
+    public ICommand StartDeepScanCommand { get; }
 
     public RecoveryViewModel(
         IEngineIpcClient ipcClient,
@@ -299,7 +301,7 @@ public sealed class RecoveryViewModel : ViewModelBase
         {
             var dlg = new OpenFileDialog
             {
-                Title = "Select Raw NTFS Disk Image (Read-Only)",
+                Title = "Select Raw Disk Image (Read-Only)",
                 Filter = "Disk Images (*.raw;*.img;*.dd)|*.raw;*.img;*.dd|All Files (*.*)|*.*"
             };
             if (dlg.ShowDialog() == true)
@@ -309,6 +311,57 @@ public sealed class RecoveryViewModel : ViewModelBase
         });
 
         StartNtfsQuickScanCommand = new AsyncRelayCommand(StartNtfsQuickScanAsync);
+        StartDeepScanCommand = new AsyncRelayCommand(StartDeepScanAsync);
+    }
+
+    public async Task StartDeepScanAsync()
+    {
+        if (string.IsNullOrWhiteSpace(TargetPath))
+        {
+            ScanStatusMessage = "Specify a target device, volume, or raw disk image file first.";
+            return;
+        }
+
+        IsScanning = true;
+        ScanStatusMessage = "Opening target read-only and running signature-based Deep Scan...";
+        DateTimeOffset startedUtc = DateTimeOffset.UtcNow;
+
+        try
+        {
+            if (!_ipcClient.IsConnected)
+            {
+                bool connected = await _ipcClient.EnsureEngineStartedAndConnectedAsync();
+                if (!connected)
+                {
+                    ScanStatusMessage = "Salvus.Engine is offline.";
+                    return;
+                }
+            }
+
+            NtfsQuickScanResult scanResult = await _ipcClient.DeepScanAsync(TargetPath.Trim());
+            _scanResults.LoadScanResult(TargetPath.Trim(), scanResult);
+
+            await _database.UpsertScanSessionAsync(new ScanSessionRecord(
+                SessionId: scanResult.SessionId,
+                TargetDevicePath: TargetPath.Trim(),
+                TargetDisplayName: Path.GetFileName(TargetPath.Trim()) is { Length: > 0 } name ? name : TargetPath.Trim(),
+                Mode: ScanMode.Deep,
+                Status: "Completed",
+                StartedUtc: startedUtc,
+                CompletedUtc: DateTimeOffset.UtcNow,
+                DiscoveredFileCount: scanResult.Files.Count));
+
+            ScanStatusMessage =
+                $"Deep Scan complete: scanned {ByteSizeFormatter.Format(scanResult.MftRecordsScanned)}, carved {scanResult.Files.Count} file candidate(s). Open Scan Results to preview and recover.";
+        }
+        catch (Exception ex)
+        {
+            ScanStatusMessage = $"Deep Scan failed: {ex.Message}";
+        }
+        finally
+        {
+            IsScanning = false;
+        }
     }
 
     public async Task StartNtfsQuickScanAsync()
@@ -372,10 +425,26 @@ public sealed class ScanResultsViewModel : ViewModelBase
     private string _searchQuery = string.Empty;
     private string _selectedConfidenceFilter = "All";
     private DiscoveredFileDto? _selectedFile;
-    private string _statusMessage = "Run an NTFS Quick Scan from the Recovery section to inspect discovered files.";
+    private string _previewText = "Select a file and click Load Safe Preview to inspect supported text, PDF metadata, or images.";
+    private BitmapImage? _previewImage;
+    private string _statusMessage = "Run a Quick Scan or Deep Scan from the Recovery section to inspect discovered files.";
 
     public ObservableCollection<DiscoveredFileDto> FilteredFiles { get; } = new();
-    public IReadOnlyList<string> ConfidenceFilters { get; } = ["All", "High", "Medium", "Damaged", "Unrecoverable"];
+    public IReadOnlyList<string> ConfidenceFilters { get; } = ["All", "High", "Medium", "Low", "Damaged", "Unrecoverable"];
+
+    public string PreviewText
+    {
+        get => _previewText;
+        private set => SetProperty(ref _previewText, value);
+    }
+
+    public BitmapImage? PreviewImage
+    {
+        get => _previewImage;
+        private set => SetProperty(ref _previewImage, value);
+    }
+
+    public ICommand PreviewSelectedCommand { get; }
 
     public string SearchQuery
     {
@@ -408,7 +477,12 @@ public sealed class ScanResultsViewModel : ViewModelBase
         {
             if (SetProperty(ref _selectedFile, value))
             {
+                PreviewImage = null;
+                PreviewText = value is null
+                    ? "Select a file to inspect metadata and preview."
+                    : "Click 'Safe Preview' to inspect this file without executing it.";
                 ((AsyncRelayCommand)RecoverSelectedCommand).RaiseCanExecuteChanged();
+                ((AsyncRelayCommand)PreviewSelectedCommand).RaiseCanExecuteChanged();
             }
         }
     }
@@ -425,6 +499,46 @@ public sealed class ScanResultsViewModel : ViewModelBase
     {
         _ipcClient = ipcClient;
         RecoverSelectedCommand = new AsyncRelayCommand(RecoverSelectedAsync, () => SelectedFile is not null);
+        PreviewSelectedCommand = new AsyncRelayCommand(LoadSafePreviewAsync, () => SelectedFile is not null);
+    }
+
+    private async Task LoadSafePreviewAsync()
+    {
+        if (SelectedFile is null || string.IsNullOrWhiteSpace(_sessionId))
+        {
+            return;
+        }
+
+        PreviewImage = null;
+        PreviewText = "Loading safe non-executing preview...";
+
+        try
+        {
+            FilePreviewResult preview = await _ipcClient.GetFilePreviewAsync(_sessionId, SelectedFile.RecordNumber);
+            if (string.Equals(preview.PreviewKind, "image", StringComparison.OrdinalIgnoreCase) &&
+                !string.IsNullOrWhiteSpace(preview.Base64Bytes))
+            {
+                byte[] imgBytes = Convert.FromBase64String(preview.Base64Bytes);
+                using var ms = new MemoryStream(imgBytes);
+                var bmp = new BitmapImage();
+                bmp.BeginInit();
+                bmp.CacheOption = BitmapCacheOption.OnLoad;
+                bmp.StreamSource = ms;
+                bmp.EndInit();
+                bmp.Freeze();
+                PreviewImage = bmp;
+                PreviewText = $"Image preview loaded ({ByteSizeFormatter.Format(preview.BytesRead)}).";
+            }
+            else
+            {
+                PreviewText = preview.TextContent;
+            }
+        }
+        catch (Exception ex)
+        {
+            PreviewImage = null;
+            PreviewText = $"Preview unavailable (image/file may be damaged or incomplete): {ex.Message}";
+        }
     }
 
     public void LoadScanResult(string sourceTargetPath, NtfsQuickScanResult result)
@@ -585,7 +699,7 @@ public sealed class AboutViewModel : ViewModelBase
 
     public string ProductName => "Salvus";
     public string Tagline => "Recover what matters.";
-    public string Version => "0.3.0 — Phase 3 (NTFS Recovery)";
+    public string Version => "0.4.0 — Phase 4 (Deep Scanning)";
     public string License => "GNU General Public License v3.0 or later (GPL-3.0-or-later)";
     public string Platform => "Windows 10 / Windows 11 (x64)";
 

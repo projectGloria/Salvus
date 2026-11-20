@@ -113,6 +113,13 @@ public sealed record RecoverFileResult(
     string DestinationPath,
     string FileName);
 
+public sealed record FilePreviewResult(
+    string PreviewKind,
+    string TextContent,
+    string Base64Bytes,
+    ulong BytesRead,
+    bool Truncated);
+
 public static class ByteSizeFormatter
 {
     private static readonly string[] Units = ["B", "KiB", "MiB", "GiB", "TiB", "PiB"];

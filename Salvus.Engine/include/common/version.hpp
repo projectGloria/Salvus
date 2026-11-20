@@ -6,8 +6,8 @@
 namespace salvus::common {
 
 inline constexpr std::string_view kEngineName = "Salvus.Engine";
-inline constexpr std::string_view kEngineVersion = "0.3.0";
-inline constexpr std::string_view kDevelopmentPhase = "Phase 3 - NTFS Recovery";
+inline constexpr std::string_view kEngineVersion = "0.4.0";
+inline constexpr std::string_view kDevelopmentPhase = "Phase 4 - Deep Scanning";
 inline constexpr std::uint32_t kIpcProtocolVersion = 1;
 inline constexpr std::uint32_t kMaxIpcFrameBytes = 16U * 1024U * 1024U; // 16 MiB
 

@@ -19,6 +19,8 @@ public interface IEngineIpcClient : IAsyncDisposable
     Task<DeviceListResult> ListDevicesAsync(CancellationToken cancellationToken = default);
     Task<VolumeListResult> ListVolumesAsync(CancellationToken cancellationToken = default);
     Task<NtfsQuickScanResult> QuickScanNtfsAsync(string targetPath, bool includeActive = false, CancellationToken cancellationToken = default);
+    Task<NtfsQuickScanResult> DeepScanAsync(string targetPath, CancellationToken cancellationToken = default);
+    Task<FilePreviewResult> GetFilePreviewAsync(string sessionId, ulong recordNumber, CancellationToken cancellationToken = default);
     Task<RecoverFileResult> RecoverFileAsync(string sessionId, ulong recordNumber, string destinationPath, CancellationToken cancellationToken = default);
     Task ShutdownEngineAsync(CancellationToken cancellationToken = default);
 }
@@ -136,6 +138,20 @@ public sealed class EngineIpcClient : IEngineIpcClient
         SendCommandAsync<NtfsQuickScanResult>(
             "quick_scan_ntfs",
             JsonSerializer.SerializeToElement(new { targetPath, includeActive }, IpcConstants.JsonOptions),
+            cancellationToken);
+
+    public Task<NtfsQuickScanResult> DeepScanAsync(
+        string targetPath, CancellationToken cancellationToken = default) =>
+        SendCommandAsync<NtfsQuickScanResult>(
+            "deep_scan",
+            JsonSerializer.SerializeToElement(new { targetPath }, IpcConstants.JsonOptions),
+            cancellationToken);
+
+    public Task<FilePreviewResult> GetFilePreviewAsync(
+        string sessionId, ulong recordNumber, CancellationToken cancellationToken = default) =>
+        SendCommandAsync<FilePreviewResult>(
+            "get_file_preview",
+            JsonSerializer.SerializeToElement(new { sessionId, recordNumber }, IpcConstants.JsonOptions),
             cancellationToken);
 
     public Task<RecoverFileResult> RecoverFileAsync(

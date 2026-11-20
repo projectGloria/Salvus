@@ -304,9 +304,9 @@
                       Command="{Binding StartNtfsQuickScanCommand}"
                       Style="{StaticResource PrimaryButtonStyle}"
                       Margin="0,0,8,0" />
-              <Button Content="Start Deep Scan (Phase 4)"
+              <Button Content="Start Deep Scan (Carving)"
+                      Command="{Binding StartDeepScanCommand}"
                       Style="{StaticResource SecondaryButtonStyle}"
-                      IsEnabled="False"
                       Margin="0,0,8,0" />
               <Button Content="Partition Recovery (Phase 5)"
                       Style="{StaticResource SecondaryButtonStyle}"
@@ -340,6 +340,7 @@
               <ColumnDefinition Width="*" />
               <ColumnDefinition Width="160" />
               <ColumnDefinition Width="Auto" />
+              <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
 
             <TextBox Grid.Column="0"
@@ -353,6 +354,12 @@
                       Margin="0,0,8,0" />
 
             <Button Grid.Column="2"
+                    Content="Safe Preview"
+                    Command="{Binding PreviewSelectedCommand}"
+                    Style="{StaticResource SecondaryButtonStyle}"
+                    Margin="0,0,8,0" />
+
+            <Button Grid.Column="3"
                     Content="Recover Selected File..."
                     Command="{Binding RecoverSelectedCommand}"
                     Style="{StaticResource PrimaryButtonStyle}" />
@@ -415,7 +422,24 @@
                 <Run Text="{Binding SelectedFile.AdsDisplay, Mode=OneWay, FallbackValue='—'}" />
               </TextBlock>
               <TextBlock Text="Confidence Explanation" FontWeight="SemiBold" Margin="0,4,0,4" />
-              <TextBlock Text="{Binding SelectedFile.ConfidenceReason, FallbackValue='—'}" Foreground="{StaticResource TextSecondaryBrush}" TextWrapping="Wrap" />
+              <TextBlock Text="{Binding SelectedFile.ConfidenceReason, FallbackValue='—'}" Foreground="{StaticResource TextSecondaryBrush}" TextWrapping="Wrap" Margin="0,0,0,12" />
+
+              <Border BorderBrush="{StaticResource BorderSubtleBrush}" BorderThickness="0,1,0,0" Padding="0,10,0,0">
+                <StackPanel>
+                  <TextBlock Text="SAFE NON-EXECUTING PREVIEW" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,6" />
+                  <Image Source="{Binding PreviewImage}"
+                         MaxHeight="150"
+                         Stretch="Uniform"
+                         Margin="0,0,0,6" />
+                  <TextBox Text="{Binding PreviewText, Mode=OneWay}"
+                           IsReadOnly="True"
+                           TextWrapping="Wrap"
+                           MaxHeight="130"
+                           VerticalScrollBarVisibility="Auto"
+                           FontFamily="Consolas"
+                           FontSize="11" />
+                </StackPanel>
+              </Border>
             </StackPanel>
           </Border>
         </Grid>

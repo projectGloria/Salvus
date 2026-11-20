@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added — Phase 4: Deep Scanning
+- Implemented extensible `SignatureDatabase` with 27+ built-in file signatures across Images (JPG, PNG, GIF, BMP, TIFF, WebP, ICO), Video (MP4, AVI, MKV, WMV, MPEG), Audio (MP3, WAV, FLAC, OGG), Documents (PDF, OLE2/DOC, RTF), Archives (ZIP/OOXML, RAR, 7Z, GZIP, TAR), and Binaries (PE/EXE with PE header validation).
+- Implemented bounded streaming `DeepScanner` (4 MiB read buffer, 256 KiB footer search window) supporting footer matching, embedded BMP/RIFF size parsing, ZIP EOCD boundary detection, and honest `Low` / `Damaged` confidence classification with fragmentation caveats.
+- Added `deep_scan` and `get_file_preview` Named Pipe IPC commands in `Salvus.Engine` and `EngineIpcClient` with non-executing safe previews for images (in-memory Base64 → WPF `BitmapImage`), sanitized UTF-8/ASCII text, and PDF header metadata.
+- Enabled Deep Scan in `Salvus.Desktop` Recovery view and added the Safe Non-Executing Preview pane in Scan Results.
+- Added `deep_scanner_tests.cpp` (GoogleTest) and live Named Pipe `deep_scan` + `get_file_preview` + `recover_file` integration assertions in `EngineIpcIntegrationTests.cs`.
+
 ### Added — Phase 3: NTFS Recovery
 - Implemented `FileSystemDetector` for NTFS, FAT32, exFAT, experimental ReFS, and RAW boot sector identification.
 - Implemented `NTFSParser` with boot sector validation, MFT record USA fixup verification, `$STANDARD_INFORMATION`, `$FILE_NAME` (UTF-16LE + Win32 namespace preference), `$DATA` (resident, non-resident, fragmented signed delta-LCN runs, sparse runs, and Alternate Data Streams), deleted file detection, cycle-safe directory path reconstruction, and transparent confidence classification.
