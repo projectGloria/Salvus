@@ -880,7 +880,7 @@ public sealed class AboutViewModel : ViewModelBase
 
     public string ProductName => "Salvus";
     public string Tagline => "Recover what matters.";
-    public string Version => "0.6.0 — Phase 6 (Professional Features)";
+    public string Version => "1.0.0";
     public string License => "GNU General Public License v3.0 or later (GPL-3.0-or-later)";
     public string Platform => "Windows 10 / Windows 11 (x64)";
 

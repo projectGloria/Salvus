@@ -4,7 +4,13 @@ All notable changes to Salvus will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.0.0] — Release Ready
+
+### Added — Phase 7: Release Preparation
+- Added corruption and malformed-metadata resilience test suite (`corruption_resilience_tests.cpp`) covering zero/0xFF boot sectors, NTFS BPB overflows, zero-length and `UINT32_MAX` MFT attribute traps, corrupted GPT CRC32 rejection, and malformed IPC JSON inputs.
+- Added Inno Setup 6 Windows x64 installer definition (`installer/Salvus.iss`) referencing `Salvus.ico` and `Salvus.png` directly from the repository root and integrated it into `.github/workflows/release.yml`.
+- Completed security and data-integrity audit documentation (`docs/SECURITY_AUDIT.md`).
+- Finalized `1.0.0` versioning across `Salvus.Engine`, `Salvus.Desktop`, `Salvus.Shared`, `Salvus.Data`, and Windows version resources.
 
 ### Added — Phase 6: Professional Features
 - Implemented native Windows CNG (`bcrypt.dll`) streaming SHA-256 verification (`IntegrityChecker::ComputeSha256`) with zero third-party crypto dependencies.

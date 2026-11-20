@@ -49,16 +49,33 @@ jobs:
           format: spdx-json
           output-file: artifacts/salvus-win-x64.spdx.json
 
+      - name: Build Windows Installer (Inno Setup 6)
+        shell: pwsh
+        run: |
+          $iscc = Get-Command iscc -ErrorAction SilentlyContinue
+          if (-not $iscc) {
+            $defaultPath = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+            if (Test-Path $defaultPath) { $iscc = $defaultPath }
+          }
+          if ($iscc) {
+            & $iscc "installer/Salvus.iss"
+          } else {
+            Write-Host "Inno Setup (ISCC.exe) not preinstalled on runner; skipping installer compilation."
+          }
+
       - name: Create archive and SHA-256 checksums
         shell: pwsh
         run: |
           Compress-Archive -Path "artifacts/salvus-win-x64/*" -DestinationPath "artifacts/Salvus-win-x64.zip" -Force
-          $zipHash = (Get-FileHash "artifacts/Salvus-win-x64.zip" -Algorithm SHA256).Hash
-          $sbomHash = (Get-FileHash "artifacts/salvus-win-x64.spdx.json" -Algorithm SHA256).Hash
-          @(
-            "$zipHash  Salvus-win-x64.zip"
-            "$sbomHash  salvus-win-x64.spdx.json"
-          ) | Set-Content -Path "artifacts/SHA256SUMS.txt" -Encoding utf8
+          $lines = @(
+            "$((Get-FileHash 'artifacts/Salvus-win-x64.zip' -Algorithm SHA256).Hash)  Salvus-win-x64.zip"
+            "$((Get-FileHash 'artifacts/salvus-win-x64.spdx.json' -Algorithm SHA256).Hash)  salvus-win-x64.spdx.json"
+          )
+          $setup = Get-ChildItem "artifacts/installer/*.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($setup) {
+            $lines += "$((Get-FileHash $setup.FullName -Algorithm SHA256).Hash)  $($setup.Name)"
+          }
+          $lines | Set-Content -Path "artifacts/SHA256SUMS.txt" -Encoding utf8
 
       - name: Upload release artifacts
         uses: actions/upload-artifact@v4
@@ -68,3 +85,4 @@ jobs:
             artifacts/Salvus-win-x64.zip
             artifacts/salvus-win-x64.spdx.json
             artifacts/SHA256SUMS.txt
+            artifacts/installer/*.exe
