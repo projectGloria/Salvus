@@ -220,10 +220,19 @@ public sealed class EngineIpcClient : IEngineIpcClient
 
             string reqId = Guid.NewGuid().ToString("N");
             var request = new IpcRequest(reqId, IpcConstants.ProtocolVersion, command, payloadElement);
-            await IpcFraming.WriteMessageAsync(_pipe, request, cancellationToken).ConfigureAwait(false);
-
-            IpcResponse response = await IpcFraming.ReadMessageAsync<IpcResponse>(_pipe, cancellationToken)
-                .ConfigureAwait(false);
+            IpcResponse response;
+            try
+            {
+                await IpcFraming.WriteMessageAsync(_pipe, request, cancellationToken).ConfigureAwait(false);
+                response = await IpcFraming.ReadMessageAsync<IpcResponse>(_pipe, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (IOException)
+            {
+                _pipe.Dispose();
+                _pipe = null;
+                throw;
+            }
 
             if (!string.Equals(response.Id, reqId, StringComparison.Ordinal))
             {

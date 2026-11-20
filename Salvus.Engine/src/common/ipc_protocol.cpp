@@ -693,7 +693,7 @@ DispatchResult CommandDispatcher::Dispatch(const IpcRequest& request) const {
                 << "\"files\":[";
 
         std::size_t emittedCount = 0;
-        constexpr std::size_t kMaxIpcFiles = 10000U;
+        constexpr std::size_t kMaxIpcFiles = 5000U;
         for (std::size_t i = 0; i < entries.size() && emittedCount < kMaxIpcFiles; ++i) {
             const auto& e = entries[i];
             if (!pathFilterLower.empty()) {
@@ -984,10 +984,11 @@ DispatchResult CommandDispatcher::Dispatch(const IpcRequest& request) const {
         }
 
         salvus::scanner::DeepScanOptions scanOpts{};
+        scanOpts.maxFiles = 2500ULL; // Bounded per-scan IPC result cap to keep frames well under 16 MiB
         if (const auto maxPos = FindTopLevelJsonValueStart(request.payloadJson, "maxFiles")) {
             const auto maxRes = ExtractJsonUint64Value(request.payloadJson, *maxPos);
             if (maxRes.ok() && maxRes.value() > 0ULL) {
-                scanOpts.maxFiles = maxRes.value();
+                scanOpts.maxFiles = (std::min)(maxRes.value(), 5000ULL);
             }
         }
 

@@ -196,10 +196,19 @@ Result<void> NamedPipeServer::Run() {
             }
 
             const std::string responseJson = SerializeIpcResponse(dispatch.response);
-            const auto encoded = EncodeIpcFrame(responseJson);
+            auto encoded = EncodeIpcFrame(responseJson);
             if (!encoded.ok()) {
-                Logger::Error("IpcServer", "Failed to encode IPC response frame.");
-                break;
+                Logger::Error("IpcServer", "IPC response exceeded max frame size; sending error envelope.");
+                IpcResponse errResp{};
+                errResp.id = dispatch.response.id;
+                errResp.protocolVersion = kIpcProtocolVersion;
+                errResp.ok = false;
+                errResp.errorCode = "ERR_RESPONSE_TOO_LARGE";
+                errResp.errorMessage = "Engine response exceeded maximum IPC frame size (16 MiB). Narrow your directory filter or scan limit.";
+                encoded = EncodeIpcFrame(SerializeIpcResponse(errResp));
+                if (!encoded.ok()) {
+                    break;
+                }
             }
 
             if (!WriteExactBytes(pipe.handle, encoded.value().data(), encoded.value().size())) {
