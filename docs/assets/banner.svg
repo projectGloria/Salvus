@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 320" width="1200" height="320" role="img" aria-label="Salvus banner">
+  <defs>
+    <radialGradient id="leftGlow" cx="0%" cy="50%" r="48%" fx="0%" fy="50%">
+      <stop offset="0%" stop-color="#3B82F6" stop-opacity="0.28" />
+      <stop offset="60%" stop-color="#3B82F6" stop-opacity="0.06" />
+      <stop offset="100%" stop-color="#3B82F6" stop-opacity="0" />
+    </radialGradient>
+    <clipPath id="cardClip">
+      <rect x="0.5" y="0.5" width="1199" height="319" rx="18" />
+    </clipPath>
+  </defs>
+
+  <!-- Base card -->
+  <rect x="0.5" y="0.5" width="1199" height="319" rx="18" fill="#111216" stroke="#262830" stroke-width="1" />
+
+  <!-- Clipped inner graphics -->
+  <g clip-path="url(#cardClip)">
+    <!-- Ambient left radial glow -->
+    <rect x="0" y="0" width="1200" height="320" fill="url(#leftGlow)" />
+
+    <!-- Right geometric detail: 3 diagonal translucent lines -->
+    <line x1="920" y1="-20" x2="1120" y2="340" stroke="#3B82F6" stroke-opacity="0.22" stroke-width="1.5" />
+    <line x1="975" y1="-20" x2="1175" y2="340" stroke="#3B82F6" stroke-opacity="0.22" stroke-width="1.5" />
+    <line x1="1030" y1="-20" x2="1230" y2="340" stroke="#3B82F6" stroke-opacity="0.22" stroke-width="1.5" />
+  </g>
+
+  <!-- Left accent bar -->
+  <rect x="4" y="40" width="8" height="240" rx="4" fill="#3B82F6" />
+
+  <!-- Typography -->
+  <text x="56" y="118" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="52" font-weight="800" fill="#3B82F6">Salvus</text>
+  <text x="56" y="162" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="22" font-weight="400" fill="#D4D4D8">Read-only Windows data recovery and raw disk imaging</text>
+
+  <!-- Feature Pills -->
+  <g font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="16" font-weight="500" fill="#E4E4E7">
+    <!-- Pill 1 -->
+    <rect x="56" y="220" width="216" height="42" rx="10" fill="#181A20" stroke="#2C2F3A" stroke-width="1" />
+    <circle cx="76" cy="241" r="5" fill="#3B82F6" />
+    <text x="90" y="247">NTFS / FAT32 / exFAT</text>
+
+    <!-- Pill 2 -->
+    <rect x="288" y="220" width="204" height="42" rx="10" fill="#181A20" stroke="#2C2F3A" stroke-width="1" />
+    <circle cx="308" cy="241" r="5" fill="#3B82F6" />
+    <text x="322" y="247">27+ Deep Signatures</text>
+
+    <!-- Pill 3 -->
+    <rect x="508" y="220" width="200" height="42" rx="10" fill="#181A20" stroke="#2C2F3A" stroke-width="1" />
+    <circle cx="528" cy="241" r="5" fill="#3B82F6" />
+    <text x="542" y="247">MBR &amp; GPT Recovery</text>
+
+    <!-- Pill 4 -->
+    <rect x="724" y="220" width="224" height="42" rx="10" fill="#181A20" stroke="#2C2F3A" stroke-width="1" />
+    <circle cx="744" cy="241" r="5" fill="#3B82F6" />
+    <text x="758" y="247">Raw Imaging + SHA-256</text>
+  </g>
+</svg>
