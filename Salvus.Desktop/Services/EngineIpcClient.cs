@@ -18,7 +18,7 @@ public interface IEngineIpcClient : IAsyncDisposable
     Task<EngineCapabilities> GetCapabilitiesAsync(CancellationToken cancellationToken = default);
     Task<DeviceListResult> ListDevicesAsync(CancellationToken cancellationToken = default);
     Task<VolumeListResult> ListVolumesAsync(CancellationToken cancellationToken = default);
-    Task<NtfsQuickScanResult> QuickScanNtfsAsync(string targetPath, bool includeActive = false, CancellationToken cancellationToken = default);
+    Task<NtfsQuickScanResult> QuickScanNtfsAsync(string targetPath, bool includeActive = false, string? pathFilter = null, CancellationToken cancellationToken = default);
     Task<NtfsQuickScanResult> DeepScanAsync(string targetPath, CancellationToken cancellationToken = default);
     Task<PartitionAnalysisDto> AnalyzePartitionsAsync(string targetPath, CancellationToken cancellationToken = default);
     Task<FilePreviewResult> GetFilePreviewAsync(string sessionId, ulong recordNumber, CancellationToken cancellationToken = default);
@@ -137,10 +137,12 @@ public sealed class EngineIpcClient : IEngineIpcClient
         SendCommandAsync<VolumeListResult>("list_volumes", cancellationToken);
 
     public Task<NtfsQuickScanResult> QuickScanNtfsAsync(
-        string targetPath, bool includeActive = false, CancellationToken cancellationToken = default) =>
+        string targetPath, bool includeActive = false, string? pathFilter = null, CancellationToken cancellationToken = default) =>
         SendCommandAsync<NtfsQuickScanResult>(
             "quick_scan",
-            JsonSerializer.SerializeToElement(new { targetPath, includeActive }, IpcConstants.JsonOptions),
+            JsonSerializer.SerializeToElement(
+                new { targetPath, includeActive, pathFilter = pathFilter ?? string.Empty },
+                IpcConstants.JsonOptions),
             cancellationToken);
 
     public Task<NtfsQuickScanResult> DeepScanAsync(

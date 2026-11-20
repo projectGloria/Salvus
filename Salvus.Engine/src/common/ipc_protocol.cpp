@@ -582,7 +582,8 @@ DispatchResult CommandDispatcher::Dispatch(const IpcRequest& request) const {
         }
 
         bool includeActive = false;
-        std::uint64_t maxRecords = 250000ULL;
+        std::uint64_t maxRecords = 500000ULL;
+        std::string pathFilterLower;
         if (const auto incPos = FindTopLevelJsonValueStart(request.payloadJson, "includeActive")) {
             if (const auto incBool = ExtractJsonBoolValue(request.payloadJson, *incPos)) {
                 includeActive = *incBool;
@@ -592,6 +593,14 @@ DispatchResult CommandDispatcher::Dispatch(const IpcRequest& request) const {
             const auto maxRes = ExtractJsonUint64Value(request.payloadJson, *maxPos);
             if (maxRes.ok() && maxRes.value() > 0ULL) {
                 maxRecords = maxRes.value();
+            }
+        }
+        if (const auto pfPos = FindTopLevelJsonValueStart(request.payloadJson, "pathFilter")) {
+            const auto pfRes = ExtractJsonStringValue(request.payloadJson, *pfPos);
+            if (pfRes.ok() && !pfRes.value().empty()) {
+                pathFilterLower = pfRes.value();
+                std::transform(pathFilterLower.begin(), pathFilterLower.end(), pathFilterLower.begin(),
+                               [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
             }
         }
 
@@ -683,11 +692,22 @@ DispatchResult CommandDispatcher::Dispatch(const IpcRequest& request) const {
                 << "\"clusterSizeBytes\":" << clusterBytes << ","
                 << "\"files\":[";
 
-        for (std::size_t i = 0; i < entries.size(); ++i) {
+        std::size_t emittedCount = 0;
+        constexpr std::size_t kMaxIpcFiles = 10000U;
+        for (std::size_t i = 0; i < entries.size() && emittedCount < kMaxIpcFiles; ++i) {
             const auto& e = entries[i];
-            if (i > 0) {
+            if (!pathFilterLower.empty()) {
+                std::string lowerPath = e.fullPath;
+                std::transform(lowerPath.begin(), lowerPath.end(), lowerPath.begin(),
+                               [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+                if (lowerPath.find(pathFilterLower) == std::string::npos) {
+                    continue;
+                }
+            }
+            if (emittedCount > 0) {
                 payload << ",";
             }
+            ++emittedCount;
             payload << "{"
                     << "\"recordNumber\":" << e.recordNumber << ","
                     << "\"fileName\":\"" << EscapeJsonString(e.fileName) << "\","

@@ -124,6 +124,7 @@ public sealed class MainWindowViewModel : ViewModelBase
     {
         await Dashboard.RefreshAsync();
         await Drives.RefreshAsync();
+        Recovery.IsElevated = Drives.IsElevated;
         Recovery.SyncAvailableTargets(Drives.PhysicalDisks, Drives.Volumes);
         await RecoveryHistory.RefreshAsync();
         await Settings.LoadAsync();

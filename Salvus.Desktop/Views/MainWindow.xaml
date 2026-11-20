@@ -296,6 +296,33 @@
     <DataTemplate DataType="{x:Type vm:RecoveryViewModel}">
       <ScrollViewer VerticalScrollBarVisibility="Auto">
         <StackPanel Margin="0,0,0,16">
+          <!-- Controlled Administrative Elevation Banner (shown only when not elevated) -->
+          <Border Margin="0,0,0,12" BorderBrush="{StaticResource StatusWarningBrush}">
+            <Border.Style>
+              <Style TargetType="Border" BasedOn="{StaticResource PanelBorderStyle}">
+                <Setter Property="Visibility" Value="Collapsed" />
+                <Style.Triggers>
+                  <DataTrigger Binding="{Binding NeedsElevationForRawAccess}" Value="True">
+                    <Setter Property="Visibility" Value="Visible" />
+                  </DataTrigger>
+                </Style.Triggers>
+              </Style>
+            </Border.Style>
+            <DockPanel>
+              <Button DockPanel.Dock="Right"
+                      Content="Restart as Administrator"
+                      Command="{Binding RestartAsAdminCommand}"
+                      Style="{StaticResource PrimaryButtonStyle}"
+                      VerticalAlignment="Center"
+                      Margin="12,0,0,0" />
+              <StackPanel VerticalAlignment="Center">
+                <TextBlock Text="Administrator Privileges Required for Local Drives" FontWeight="SemiBold" Foreground="{StaticResource StatusWarningBrush}" />
+                <TextBlock Text="Windows blocks raw read-only access to local volumes (e.g. \\.\C:) when running as a standard user. Restart Salvus as Administrator to scan live drives, or browse a raw .img/.raw disk image."
+                           Foreground="{StaticResource TextSecondaryBrush}" FontSize="12" TextWrapping="Wrap" Margin="0,2,0,0" />
+              </StackPanel>
+            </DockPanel>
+          </Border>
+
           <Border Style="{StaticResource PanelBorderStyle}" Margin="0,0,0,12">
             <StackPanel>
               <TextBlock Text="Select Target Drive, Directory, or Raw Disk Image (Strictly Read-Only)" FontSize="15" FontWeight="SemiBold" Margin="0,0,0,10" />

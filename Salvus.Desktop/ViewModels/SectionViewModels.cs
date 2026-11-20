@@ -1,5 +1,7 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.IO;
+using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media.Imaging;
 using Microsoft.Win32;
@@ -283,12 +285,27 @@ public sealed class RecoveryViewModel : ViewModelBase
     private ScanTargetOption? _selectedTargetOption;
     private bool _includeActiveFiles;
     private bool _isScanning;
+    private bool _isElevated;
     private string _scanStatusMessage = "Select a drive/volume from the dropdown, pick a folder with 'Browse Folder...', or select a raw disk image (.raw / .img).";
 
     public event Action? NavigateToResultsRequested;
 
     public ObservableCollection<ScanTargetOption> AvailableTargets { get; } = new();
     public ObservableCollection<PartitionEntryDto> DiscoveredPartitions { get; } = new();
+
+    public bool IsElevated
+    {
+        get => _isElevated;
+        set
+        {
+            if (SetProperty(ref _isElevated, value))
+            {
+                OnPropertyChanged(nameof(NeedsElevationForRawAccess));
+            }
+        }
+    }
+
+    public bool NeedsElevationForRawAccess => !_isElevated;
 
     public ScanTargetOption? SelectedTargetOption
     {
@@ -339,6 +356,7 @@ public sealed class RecoveryViewModel : ViewModelBase
     public ICommand StartDeepScanCommand { get; }
     public ICommand AnalyzePartitionsCommand { get; }
     public ICommand OpenResultsCommand { get; }
+    public ICommand RestartAsAdminCommand { get; }
 
     public RecoveryViewModel(
         IEngineIpcClient ipcClient,
@@ -393,6 +411,52 @@ public sealed class RecoveryViewModel : ViewModelBase
         StartDeepScanCommand = new AsyncRelayCommand(StartDeepScanAsync);
         AnalyzePartitionsCommand = new AsyncRelayCommand(AnalyzePartitionsAsync);
         OpenResultsCommand = new RelayCommand(_ => NavigateToResultsRequested?.Invoke());
+        RestartAsAdminCommand = new RelayCommand(_ =>
+        {
+            try
+            {
+                string? exePath = Environment.ProcessPath;
+                if (string.IsNullOrWhiteSpace(exePath))
+                {
+                    ScanStatusMessage = "Could not resolve executable path for elevation.";
+                    return;
+                }
+
+                bool hasSystemDotnet = File.Exists(
+                    Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "dotnet", "dotnet.exe"));
+                string localDotnet = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".dotnet");
+
+                ProcessStartInfo psi;
+                if (!hasSystemDotnet && Directory.Exists(localDotnet))
+                {
+                    psi = new ProcessStartInfo
+                    {
+                        FileName = "cmd.exe",
+                        Arguments = $"/c set \"DOTNET_ROOT={localDotnet}\" && start \"\" \"{exePath}\"",
+                        UseShellExecute = true,
+                        Verb = "runas",
+                        WindowStyle = ProcessWindowStyle.Hidden
+                    };
+                }
+                else
+                {
+                    psi = new ProcessStartInfo
+                    {
+                        FileName = exePath,
+                        UseShellExecute = true,
+                        Verb = "runas"
+                    };
+                }
+
+                Process.Start(psi);
+                Application.Current?.Shutdown();
+            }
+            catch (Exception ex)
+            {
+                ScanStatusMessage = $"Elevation cancelled or failed: {ex.Message}";
+            }
+        });
     }
 
     public void SyncAvailableTargets(
@@ -499,11 +563,16 @@ public sealed class RecoveryViewModel : ViewModelBase
                 DiscoveredFileCount: scanResult.Files.Count));
 
             ScanStatusMessage =
-                $"Deep Scan complete: scanned {ByteSizeFormatter.Format(scanResult.MftRecordsScanned)}, carved {scanResult.Files.Count} file candidate(s). Open Scan Results to preview and recover.";
+                $"Deep Scan complete: scanned {ByteSizeFormatter.Format(scanResult.MftRecordsScanned)}, carved {scanResult.Files.Count} file candidate(s). Opening Scan Results...";
+            NavigateToResultsRequested?.Invoke();
         }
         catch (Exception ex)
         {
-            ScanStatusMessage = $"Deep Scan failed: {ex.Message}";
+            string hint = ex.Message.Contains("ERR_ACCESS_DENIED", StringComparison.OrdinalIgnoreCase) ||
+                          ex.Message.Contains("error 5", StringComparison.OrdinalIgnoreCase)
+                ? " — Click 'Restart as Administrator' above to grant read-only raw volume access."
+                : string.Empty;
+            ScanStatusMessage = $"Deep Scan failed: {ex.Message}{hint}";
         }
         finally
         {
@@ -535,12 +604,9 @@ public sealed class RecoveryViewModel : ViewModelBase
                 }
             }
 
-            NtfsQuickScanResult scanResult = await _ipcClient.QuickScanNtfsAsync(TargetPath.Trim(), IncludeActiveFiles);
+            NtfsQuickScanResult scanResult = await _ipcClient.QuickScanNtfsAsync(
+                TargetPath.Trim(), IncludeActiveFiles, DirectoryScope.Trim());
             _scanResults.LoadScanResult(TargetPath.Trim(), scanResult);
-            if (!string.IsNullOrWhiteSpace(DirectoryScope))
-            {
-                _scanResults.SearchQuery = DirectoryScope.Trim();
-            }
 
             await _database.UpsertScanSessionAsync(new ScanSessionRecord(
                 SessionId: scanResult.SessionId,
