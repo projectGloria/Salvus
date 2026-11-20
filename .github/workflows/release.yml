@@ -1,14 +1,23 @@
-name: Salvus Release Packaging
+name: Salvus Release
 
 on:
   push:
     tags:
-      - 'v*.*.*'
+      - 'v[0-9]+.[0-9]+.[0-9]+*'
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Build and package artifacts without publishing a GitHub Release'
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
 
 jobs:
-  package-windows-x64:
-    name: Package Windows x64 Release + SBOM
+  build:
+    name: Build Windows x64 Installer & Archive
     runs-on: windows-latest
 
     steps:
@@ -20,69 +29,148 @@ jobs:
         run: |
           if (-not (Test-Path "Salvus.ico")) { throw "Missing mandatory root asset: Salvus.ico" }
           if (-not (Test-Path "Salvus.png")) { throw "Missing mandatory root asset: Salvus.png" }
+          Write-Host "Verified Salvus.ico and Salvus.png in repository root."
 
-      - name: Build Salvus.Engine (Release x64)
+      - name: Resolve version and verify manifest sync
+        shell: pwsh
+        run: |
+          [xml]$props = Get-Content "Directory.Build.props" -Raw
+          $propsVersion = ($props.Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1).Trim()
+          if (-not $propsVersion) { throw "Could not read <Version> from Directory.Build.props" }
+
+          $cmakeContent = Get-Content "Salvus.Engine/CMakeLists.txt" -Raw
+          if ($cmakeContent -notmatch 'project\s*\(\s*SalvusEngine[\s\S]*?VERSION\s+([0-9]+\.[0-9]+\.[0-9]+)') {
+            throw "Could not read VERSION from Salvus.Engine/CMakeLists.txt"
+          }
+          $cmakeVersion = $Matches[1]
+
+          if ("${{ github.ref }}".StartsWith("refs/tags/v")) {
+            $version = "${{ github.ref_name }}".Substring(1)
+            $baseVersion = ($version -split '-')[0]
+
+            if ($version -ne $propsVersion) {
+              throw "Tag version '$version' does not match Directory.Build.props <Version> '$propsVersion'."
+            }
+            if ($baseVersion -ne $cmakeVersion) {
+              throw "Tag base version '$baseVersion' does not match Salvus.Engine/CMakeLists.txt VERSION '$cmakeVersion'."
+            }
+            Write-Host "Verified tag v$version matches Directory.Build.props ($propsVersion) and CMakeLists.txt ($cmakeVersion)."
+          } else {
+            $version = $propsVersion
+            Write-Host "Dry-run dispatch using Directory.Build.props version: $version"
+          }
+
+          "VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Configure, build, and test Salvus.Engine (Release x64)
         shell: pwsh
         run: |
           cmake -S Salvus.Engine -B Salvus.Engine/build -G "Visual Studio 17 2022" -A x64 -DSALVUS_BUILD_TESTS=ON
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cmake --build Salvus.Engine/build --config Release --parallel
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           ctest --test-dir Salvus.Engine/build -C Release --output-on-failure
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Setup .NET 10 SDK
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
 
+      - name: Restore, build, and test .NET solution
+        shell: pwsh
+        run: |
+          dotnet restore Salvus.sln
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet build Salvus.sln -c Release --no-restore
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet test Salvus.sln -c Release --no-build --verbosity normal
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Publish Salvus.Desktop (win-x64)
         shell: pwsh
         run: |
           dotnet publish Salvus.Desktop/Salvus.Desktop.csproj -c Release -r win-x64 --self-contained false -o artifacts/salvus-win-x64
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Copy-Item "Salvus.Engine/build/Release/Salvus.Engine.exe" "artifacts/salvus-win-x64/Salvus.Engine.exe" -Force
           Copy-Item "LICENSE" "artifacts/salvus-win-x64/LICENSE" -Force
           Copy-Item "Salvus.ico" "artifacts/salvus-win-x64/Salvus.ico" -Force
           Copy-Item "Salvus.png" "artifacts/salvus-win-x64/Salvus.png" -Force
+          New-Item -ItemType Directory -Path "artifacts/release-stage" -Force | Out-Null
 
       - name: Generate SPDX Software Bill of Materials (SBOM)
         uses: anchore/sbom-action@v0
         with:
           path: artifacts/salvus-win-x64
           format: spdx-json
-          output-file: artifacts/salvus-win-x64.spdx.json
+          output-file: artifacts/release-stage/Salvus-${{ env.VERSION }}-win-x64.spdx.json
 
       - name: Build Windows Installer (Inno Setup 6)
         shell: pwsh
         run: |
-          $iscc = Get-Command iscc -ErrorAction SilentlyContinue
-          if (-not $iscc) {
-            $defaultPath = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
-            if (Test-Path $defaultPath) { $iscc = $defaultPath }
+          $isccCmd = Get-Command iscc -ErrorAction SilentlyContinue
+          $iscc = if ($isccCmd) { $isccCmd.Source } else { "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" }
+          if (-not (Test-Path $iscc)) {
+            throw "Inno Setup compiler (ISCC.exe) not found on runner."
           }
-          if ($iscc) {
-            & $iscc "installer/Salvus.iss"
-          } else {
-            Write-Host "Inno Setup (ISCC.exe) not preinstalled on runner; skipping installer compilation."
-          }
+          & $iscc "/DMyAppVersion=$env:VERSION" "installer/Salvus.iss"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Create archive and SHA-256 checksums
+      - name: Stage portable archive and installer
         shell: pwsh
         run: |
-          Compress-Archive -Path "artifacts/salvus-win-x64/*" -DestinationPath "artifacts/Salvus-win-x64.zip" -Force
-          $lines = @(
-            "$((Get-FileHash 'artifacts/Salvus-win-x64.zip' -Algorithm SHA256).Hash)  Salvus-win-x64.zip"
-            "$((Get-FileHash 'artifacts/salvus-win-x64.spdx.json' -Algorithm SHA256).Hash)  salvus-win-x64.spdx.json"
-          )
-          $setup = Get-ChildItem "artifacts/installer/*.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
-          if ($setup) {
-            $lines += "$((Get-FileHash $setup.FullName -Algorithm SHA256).Hash)  $($setup.Name)"
-          }
-          $lines | Set-Content -Path "artifacts/SHA256SUMS.txt" -Encoding utf8
+          $version = $env:VERSION
+          $zipPath = "artifacts/release-stage/Salvus-$version-win-x64.zip"
+          $installerPath = "artifacts/installer/Salvus-Setup-$version-win-x64.exe"
+          $sbomPath = "artifacts/release-stage/Salvus-$version-win-x64.spdx.json"
 
-      - name: Upload release artifacts
+          Compress-Archive -Path "artifacts/salvus-win-x64/*" -DestinationPath $zipPath -Force
+          if (-not (Test-Path $installerPath)) {
+            throw "Expected installer not found at $installerPath"
+          }
+          Copy-Item $installerPath "artifacts/release-stage/" -Force
+
+          foreach ($file in @($zipPath, $sbomPath, "artifacts/release-stage/Salvus-Setup-$version-win-x64.exe")) {
+            if (-not (Test-Path $file)) {
+              throw "Expected staged release asset missing: $file"
+            }
+          }
+          Get-ChildItem "artifacts/release-stage" | Format-Table Name, Length
+
+      - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
           name: salvus-win-x64-release
-          path: |
-            artifacts/Salvus-win-x64.zip
-            artifacts/salvus-win-x64.spdx.json
-            artifacts/SHA256SUMS.txt
-            artifacts/installer/*.exe
+          path: artifacts/release-stage/*
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Generate SHA256SUMS.txt
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd release-assets
+          sha256sum * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Create Draft GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: release-assets/*

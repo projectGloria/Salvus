@@ -2,7 +2,9 @@
 ; References official Salvus.ico and Salvus.png directly from the repository root.
 
 #define MyAppName "Salvus"
-#define MyAppVersion "1.0.0"
+#ifndef MyAppVersion
+  #define MyAppVersion "1.0.0"
+#endif
 #define MyAppPublisher "Salvus Contributors"
 #define MyAppURL "https://github.com/projectGloria/Salvus"
 #define MyAppExeName "Salvus.Desktop.exe"
