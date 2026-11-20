@@ -12,6 +12,7 @@ public interface ISalvusDatabase
     Task<string?> GetPreferenceAsync(string key, CancellationToken cancellationToken = default);
     Task SetPreferenceAsync(string key, string value, CancellationToken cancellationToken = default);
     Task UpsertScanSessionAsync(ScanSessionRecord session, CancellationToken cancellationToken = default);
+    Task InsertRecoveryHistoryAsync(RecoveryHistoryRecord record, CancellationToken cancellationToken = default);
 }
 
 public sealed class SalvusDatabase : ISalvusDatabase
@@ -149,6 +150,29 @@ public sealed class SalvusDatabase : ISalvusDatabase
         cmd.Parameters.AddWithValue("$started", session.StartedUtc.ToString("O"));
         cmd.Parameters.AddWithValue("$completed", (object?)session.CompletedUtc?.ToString("O") ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$count", session.DiscoveredFileCount);
+
+        await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task InsertRecoveryHistoryAsync(RecoveryHistoryRecord record, CancellationToken cancellationToken = default)
+    {
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(cancellationToken).ConfigureAwait(false);
+
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            INSERT OR REPLACE INTO recovery_history (
+                recovery_id, session_id, destination_path, recovered_file_count,
+                failed_file_count, timestamp_utc, report_sha256)
+            VALUES ($rid, $sid, $dest, $recCount, $failCount, $ts, $sha);
+            """;
+        cmd.Parameters.AddWithValue("$rid", record.RecoveryId);
+        cmd.Parameters.AddWithValue("$sid", record.SessionId);
+        cmd.Parameters.AddWithValue("$dest", record.DestinationPath);
+        cmd.Parameters.AddWithValue("$recCount", record.RecoveredFileCount);
+        cmd.Parameters.AddWithValue("$failCount", record.FailedFileCount);
+        cmd.Parameters.AddWithValue("$ts", record.TimestampUtc.ToString("O"));
+        cmd.Parameters.AddWithValue("$sha", (object?)record.ReportSha256 ?? DBNull.Value);
 
         await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }

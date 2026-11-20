@@ -23,6 +23,8 @@ public interface IEngineIpcClient : IAsyncDisposable
     Task<PartitionAnalysisDto> AnalyzePartitionsAsync(string targetPath, CancellationToken cancellationToken = default);
     Task<FilePreviewResult> GetFilePreviewAsync(string sessionId, ulong recordNumber, CancellationToken cancellationToken = default);
     Task<RecoverFileResult> RecoverFileAsync(string sessionId, ulong recordNumber, string destinationPath, CancellationToken cancellationToken = default);
+    Task<DiskImageResultDto> CreateDiskImageAsync(string sourcePath, string destinationPath, uint maxSectorRetries = 2, CancellationToken cancellationToken = default);
+    Task<Sha256VerifyResultDto> VerifySha256Async(string filePath, CancellationToken cancellationToken = default);
     Task ShutdownEngineAsync(CancellationToken cancellationToken = default);
 }
 
@@ -167,6 +169,20 @@ public sealed class EngineIpcClient : IEngineIpcClient
         SendCommandAsync<RecoverFileResult>(
             "recover_file",
             JsonSerializer.SerializeToElement(new { sessionId, recordNumber, destinationPath }, IpcConstants.JsonOptions),
+            cancellationToken);
+
+    public Task<DiskImageResultDto> CreateDiskImageAsync(
+        string sourcePath, string destinationPath, uint maxSectorRetries = 2, CancellationToken cancellationToken = default) =>
+        SendCommandAsync<DiskImageResultDto>(
+            "create_disk_image",
+            JsonSerializer.SerializeToElement(new { sourcePath, destinationPath, maxSectorRetries }, IpcConstants.JsonOptions),
+            cancellationToken);
+
+    public Task<Sha256VerifyResultDto> VerifySha256Async(
+        string filePath, CancellationToken cancellationToken = default) =>
+        SendCommandAsync<Sha256VerifyResultDto>(
+            "verify_sha256",
+            JsonSerializer.SerializeToElement(new { filePath }, IpcConstants.JsonOptions),
             cancellationToken);
 
     public async Task ShutdownEngineAsync(CancellationToken cancellationToken = default)

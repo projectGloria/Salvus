@@ -6,6 +6,7 @@
 #include "filesystem/fat32_parser.hpp"
 #include "filesystem/filesystem_detector.hpp"
 #include "filesystem/ntfs_parser.hpp"
+#include "imaging/disk_image_manager.hpp"
 #include "partition/partition_analyzer.hpp"
 #include "recovery/recovery_components.hpp"
 #include "scanner/deep_scanner.hpp"
@@ -479,7 +480,7 @@ DispatchResult CommandDispatcher::Dispatch(const IpcRequest& request) const {
             "\"ntfsRecovery\":{\"implemented\":true,\"phase\":\"Phase 3\",\"notes\":\"Active NTFS boot sector, MFT parsing, deleted file detection, fragmented extent reconstruction, and separate-destination recovery.\"},"
             "\"deepSignatureCarving\":{\"implemented\":true,\"phase\":\"Phase 4\",\"notes\":\"Active signature database (27+ built-in file types), bounded streaming carving, boundary detection, and safe non-executing previews.\"},"
             "\"fat32ExfatGptMbr\":{\"implemented\":true,\"phase\":\"Phase 5\",\"notes\":\"Active FAT32 (LFN + clusters), exFAT (entry sets), MBR, GPT (primary & backup CRC32), and non-destructive lost partition detection.\"},"
-            "\"diskImaging\":{\"implemented\":false,\"phase\":\"Phase 6\",\"notes\":\"Scheduled for Phase 6 (Professional Features).\"}"
+            "\"diskImaging\":{\"implemented\":true,\"phase\":\"Phase 6\",\"notes\":\"Active sector-by-sector raw disk imaging with bounded retries, bad-sector map logging, and native Windows CNG SHA-256 verification.\"}"
             "}";
         return result;
     }
@@ -846,11 +847,100 @@ DispatchResult CommandDispatcher::Dispatch(const IpcRequest& request) const {
             return result;
         }
 
+        salvus::recovery::IntegrityChecker integrity;
+        const auto shaRes = integrity.ComputeSha256(Utf8ToWide(destRes.value()));
+        const std::string shaHex = shaRes.ok() ? shaRes.value() : "";
+
         std::ostringstream payload;
         payload << "{"
                 << "\"bytesWritten\":" << writeRes.value().bytesWritten << ","
                 << "\"destinationPath\":\"" << EscapeJsonString(destRes.value()) << "\","
-                << "\"fileName\":\"" << EscapeJsonString(fileEntry.fileName) << "\""
+                << "\"fileName\":\"" << EscapeJsonString(fileEntry.fileName) << "\","
+                << "\"sha256Hex\":\"" << EscapeJsonString(shaHex) << "\""
+                << "}";
+        result.response.ok = true;
+        result.response.payloadJson = payload.str();
+        return result;
+    }
+
+    if (request.command == "create_disk_image") {
+        const auto srcPos = FindTopLevelJsonValueStart(request.payloadJson, "sourcePath");
+        const auto dstPos = FindTopLevelJsonValueStart(request.payloadJson, "destinationPath");
+        if (!srcPos || !dstPos) {
+            result.response.ok = false;
+            result.response.errorCode = "ERR_INVALID_ARGUMENT";
+            result.response.errorMessage = "create_disk_image requires sourcePath and destinationPath.";
+            return result;
+        }
+        const auto srcRes = ExtractJsonStringValue(request.payloadJson, *srcPos);
+        const auto dstRes = ExtractJsonStringValue(request.payloadJson, *dstPos);
+        if (!srcRes.ok() || !dstRes.ok() || srcRes.value().empty() || dstRes.value().empty()) {
+            result.response.ok = false;
+            result.response.errorCode = "ERR_INVALID_ARGUMENT";
+            result.response.errorMessage = "Malformed create_disk_image paths.";
+            return result;
+        }
+
+        salvus::imaging::DiskImageOptions imgOpts{};
+        imgOpts.sourceDevicePath = Utf8ToWide(srcRes.value());
+        imgOpts.destinationImagePath = Utf8ToWide(dstRes.value());
+        if (const auto retriesPos = FindTopLevelJsonValueStart(request.payloadJson, "maxSectorRetries")) {
+            const auto retriesRes = ExtractJsonUint64Value(request.payloadJson, *retriesPos);
+            if (retriesRes.ok()) {
+                imgOpts.maxSectorRetries = static_cast<std::uint32_t>(retriesRes.value());
+            }
+        }
+
+        salvus::imaging::DiskImageManager imgMgr;
+        const auto imgRes = imgMgr.CreateRawImage(imgOpts);
+        if (!imgRes.ok()) {
+            result.response.ok = false;
+            result.response.errorCode = "ERR_DISK_IMAGING";
+            result.response.errorMessage = imgRes.error().message;
+            return result;
+        }
+
+        std::ostringstream payload;
+        payload << "{"
+                << "\"totalBytesCopied\":" << imgRes.value().totalBytesCopied << ","
+                << "\"badSectorCount\":" << imgRes.value().badSectorCount << ","
+                << "\"sha256Hex\":\"" << EscapeJsonString(imgRes.value().sha256Hex) << "\","
+                << "\"destinationPath\":\"" << EscapeJsonString(dstRes.value()) << "\""
+                << "}";
+        result.response.ok = true;
+        result.response.payloadJson = payload.str();
+        return result;
+    }
+
+    if (request.command == "verify_sha256") {
+        const auto pathPos = FindTopLevelJsonValueStart(request.payloadJson, "filePath");
+        if (!pathPos) {
+            result.response.ok = false;
+            result.response.errorCode = "ERR_INVALID_ARGUMENT";
+            result.response.errorMessage = "verify_sha256 requires payload.filePath.";
+            return result;
+        }
+        const auto pathRes = ExtractJsonStringValue(request.payloadJson, *pathPos);
+        if (!pathRes.ok() || pathRes.value().empty()) {
+            result.response.ok = false;
+            result.response.errorCode = "ERR_INVALID_ARGUMENT";
+            result.response.errorMessage = "Invalid payload.filePath.";
+            return result;
+        }
+
+        salvus::recovery::IntegrityChecker integrity;
+        const auto shaRes = integrity.ComputeSha256(Utf8ToWide(pathRes.value()));
+        if (!shaRes.ok()) {
+            result.response.ok = false;
+            result.response.errorCode = "ERR_SHA256";
+            result.response.errorMessage = shaRes.error().message;
+            return result;
+        }
+
+        std::ostringstream payload;
+        payload << "{"
+                << "\"filePath\":\"" << EscapeJsonString(pathRes.value()) << "\","
+                << "\"sha256Hex\":\"" << EscapeJsonString(shaRes.value()) << "\""
                 << "}";
         result.response.ok = true;
         result.response.payloadJson = payload.str();

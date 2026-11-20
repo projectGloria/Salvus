@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added — Phase 6: Professional Features
+- Implemented native Windows CNG (`bcrypt.dll`) streaming SHA-256 verification (`IntegrityChecker::ComputeSha256`) with zero third-party crypto dependencies.
+- Implemented `DiskImageManager::CreateRawImage` with strictly read-only source access, separate-destination enforcement, bounded bad-sector retries (max 5), zero-filled LBA preservation, persistent bad-sector map output (`.badsectors.txt`), and automatic SHA-256 checksum computation.
+- Implemented structured JSON `RecoveryReportGenerator` and automatic SHA-256 hashing of every recovered file in `recover_file`.
+- Added `create_disk_image` and `verify_sha256` Named Pipe IPC commands and SQLite `recovery_history` persistence (`InsertRecoveryHistoryAsync`).
+- Wired `Salvus.Desktop` Disk Imaging and Recovery History views to live engine imaging, SHA-256 verification, and SQLite audit history.
+- Added GoogleTest suites (`imaging_integrity_tests.cpp`) verifying NIST SHA-256 vector, exact raw imaging, and overwrite rejection, plus end-to-end live Named Pipe imaging & SHA-256 verification in `EngineIpcIntegrationTests.cs`.
+
 ### Added — Phase 5: Additional File Systems & Partition Recovery
 - Implemented `FAT32Parser` (BPB validation, FAT cluster chain traversal, 8.3 & Long File Name reconstruction, `0xE5` deleted entry detection, contiguous deleted cluster recovery).
 - Implemented `ExFATParser` (VBR validation, File/StreamExtension/FileName entry set parsing, `NoFatChain` & FAT chain extent reconstruction, deleted entry analysis).

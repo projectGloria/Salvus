@@ -111,7 +111,18 @@ public sealed record NtfsQuickScanResult(
 public sealed record RecoverFileResult(
     ulong BytesWritten,
     string DestinationPath,
-    string FileName);
+    string FileName,
+    string Sha256Hex = "");
+
+public sealed record DiskImageResultDto(
+    ulong TotalBytesCopied,
+    ulong BadSectorCount,
+    string Sha256Hex,
+    string DestinationPath);
+
+public sealed record Sha256VerifyResultDto(
+    string FilePath,
+    string Sha256Hex);
 
 public sealed record FilePreviewResult(
     string PreviewKind,

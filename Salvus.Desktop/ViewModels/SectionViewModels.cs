@@ -466,6 +466,7 @@ public sealed class RecoveryViewModel : ViewModelBase
 public sealed class ScanResultsViewModel : ViewModelBase
 {
     private readonly IEngineIpcClient _ipcClient;
+    private readonly ISalvusDatabase _database;
     private readonly List<DiscoveredFileDto> _allFiles = new();
 
     private string _sessionId = string.Empty;
@@ -543,9 +544,10 @@ public sealed class ScanResultsViewModel : ViewModelBase
 
     public ICommand RecoverSelectedCommand { get; }
 
-    public ScanResultsViewModel(IEngineIpcClient ipcClient)
+    public ScanResultsViewModel(IEngineIpcClient ipcClient, ISalvusDatabase database)
     {
         _ipcClient = ipcClient;
+        _database = database;
         RecoverSelectedCommand = new AsyncRelayCommand(RecoverSelectedAsync, () => SelectedFile is not null);
         PreviewSelectedCommand = new AsyncRelayCommand(LoadSafePreviewAsync, () => SelectedFile is not null);
     }
@@ -640,7 +642,19 @@ public sealed class ScanResultsViewModel : ViewModelBase
         {
             RecoverFileResult res = await _ipcClient.RecoverFileAsync(
                 _sessionId, SelectedFile.RecordNumber, dlg.FileName);
-            StatusMessage = $"Recovered '{res.FileName}' ({ByteSizeFormatter.Format(res.BytesWritten)}) to {res.DestinationPath}.";
+
+            await _database.InsertRecoveryHistoryAsync(new RecoveryHistoryRecord(
+                RecoveryId: Guid.NewGuid().ToString("N"),
+                SessionId: _sessionId,
+                DestinationPath: res.DestinationPath,
+                RecoveredFileCount: 1,
+                FailedFileCount: 0,
+                TimestampUtc: DateTimeOffset.UtcNow,
+                ReportSha256: string.IsNullOrWhiteSpace(res.Sha256Hex) ? null : res.Sha256Hex));
+
+            StatusMessage = string.IsNullOrWhiteSpace(res.Sha256Hex)
+                ? $"Recovered '{res.FileName}' ({ByteSizeFormatter.Format(res.BytesWritten)}) to {res.DestinationPath}."
+                : $"Recovered '{res.FileName}' ({ByteSizeFormatter.Format(res.BytesWritten)}) · SHA-256: {res.Sha256Hex}";
         }
         catch (Exception ex)
         {
@@ -651,9 +665,128 @@ public sealed class ScanResultsViewModel : ViewModelBase
 
 public sealed class DiskImagingViewModel : ViewModelBase
 {
-    public string StatusBadge => "Scheduled for Phase 6 — Professional Features";
-    public string Description =>
-        "Sector-by-sector raw disk imaging, bounded retry policies for unstable media, persistent bad-sector maps, and SHA-256 verification will be enabled in Phase 6.";
+    private readonly IEngineIpcClient _ipcClient;
+    private string _sourcePath = string.Empty;
+    private string _destinationPath = string.Empty;
+    private string _maxSectorRetries = "2";
+    private string _statusMessage = "Select a source physical disk/image and a separate destination .raw path. Unstable drives use bounded retries and log bad sectors.";
+    private string _lastSha256 = "—";
+
+    public string SourcePath
+    {
+        get => _sourcePath;
+        set => SetProperty(ref _sourcePath, value);
+    }
+
+    public string DestinationPath
+    {
+        get => _destinationPath;
+        set => SetProperty(ref _destinationPath, value);
+    }
+
+    public string MaxSectorRetries
+    {
+        get => _maxSectorRetries;
+        set => SetProperty(ref _maxSectorRetries, value);
+    }
+
+    public string StatusMessage
+    {
+        get => _statusMessage;
+        private set => SetProperty(ref _statusMessage, value);
+    }
+
+    public string LastSha256
+    {
+        get => _lastSha256;
+        private set => SetProperty(ref _lastSha256, value);
+    }
+
+    public ICommand BrowseSourceCommand { get; }
+    public ICommand BrowseDestinationCommand { get; }
+    public ICommand CreateImageCommand { get; }
+    public ICommand VerifyImageSha256Command { get; }
+
+    public DiskImagingViewModel(IEngineIpcClient ipcClient)
+    {
+        _ipcClient = ipcClient;
+        BrowseSourceCommand = new RelayCommand(_ =>
+        {
+            var dlg = new OpenFileDialog
+            {
+                Title = "Select Source Disk Image",
+                Filter = "Disk Images (*.raw;*.img;*.dd)|*.raw;*.img;*.dd|All Files (*.*)|*.*"
+            };
+            if (dlg.ShowDialog() == true) SourcePath = dlg.FileName;
+        });
+
+        BrowseDestinationCommand = new RelayCommand(_ =>
+        {
+            var dlg = new SaveFileDialog
+            {
+                Title = "Select Separate Destination Raw Image Path",
+                Filter = "Raw Disk Image (*.raw)|*.raw|All Files (*.*)|*.*",
+                FileName = "salvus_disk_image.raw"
+            };
+            if (dlg.ShowDialog() == true) DestinationPath = dlg.FileName;
+        });
+
+        CreateImageCommand = new AsyncRelayCommand(CreateImageAsync);
+        VerifyImageSha256Command = new AsyncRelayCommand(VerifySha256Async);
+    }
+
+    private async Task CreateImageAsync()
+    {
+        if (string.IsNullOrWhiteSpace(SourcePath) || string.IsNullOrWhiteSpace(DestinationPath))
+        {
+            StatusMessage = "Specify both a source device/image and a separate destination image path.";
+            return;
+        }
+        uint retries = uint.TryParse(MaxSectorRetries, out uint r) ? Math.Min(r, 5U) : 2U;
+
+        StatusMessage = "Creating sector-by-sector raw disk image (read-only source) and computing SHA-256...";
+        try
+        {
+            if (!_ipcClient.IsConnected)
+            {
+                await _ipcClient.EnsureEngineStartedAndConnectedAsync();
+            }
+            DiskImageResultDto res = await _ipcClient.CreateDiskImageAsync(SourcePath.Trim(), DestinationPath.Trim(), retries);
+            LastSha256 = res.Sha256Hex;
+            StatusMessage =
+                $"Image created: {ByteSizeFormatter.Format(res.TotalBytesCopied)} copied, {res.BadSectorCount} bad sector(s) logged, saved to {res.DestinationPath}.";
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Disk imaging failed: {ex.Message}";
+        }
+    }
+
+    private async Task VerifySha256Async()
+    {
+        string target = !string.IsNullOrWhiteSpace(DestinationPath) ? DestinationPath.Trim() : SourcePath.Trim();
+        if (string.IsNullOrWhiteSpace(target))
+        {
+            StatusMessage = "Specify an image path to verify its SHA-256 checksum.";
+            return;
+        }
+
+        StatusMessage = "Computing SHA-256 checksum via native Windows CNG...";
+        try
+        {
+            if (!_ipcClient.IsConnected)
+            {
+                await _ipcClient.EnsureEngineStartedAndConnectedAsync();
+            }
+            Sha256VerifyResultDto res = await _ipcClient.VerifySha256Async(target);
+            LastSha256 = res.Sha256Hex;
+            StatusMessage = $"Verified SHA-256 for {res.FilePath}.";
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Verification failed: {ex.Message}";
+        }
+    }
 }
 
 public sealed class RecoveryHistoryViewModel : ViewModelBase
@@ -747,7 +880,7 @@ public sealed class AboutViewModel : ViewModelBase
 
     public string ProductName => "Salvus";
     public string Tagline => "Recover what matters.";
-    public string Version => "0.5.0 — Phase 5 (Additional File Systems)";
+    public string Version => "0.6.0 — Phase 6 (Professional Features)";
     public string License => "GNU General Public License v3.0 or later (GPL-3.0-or-later)";
     public string Platform => "Windows 10 / Windows 11 (x64)";
 

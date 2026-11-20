@@ -35,10 +35,11 @@ public sealed class EngineIpcIntegrationTests
         Assert.True(caps.NtfsRecovery.Implemented);
         Assert.True(caps.DeepSignatureCarving.Implemented);
         Assert.True(caps.Fat32ExfatGptMbr.Implemented);
-        Assert.False(caps.DiskImaging.Implemented);
+        Assert.True(caps.DiskImaging.Implemented);
 
-        // Live Deep Scan + Safe Preview + Recover round-trip on disposable raw image
+        // Live Deep Scan + Safe Preview + Recover (with SHA-256) + Disk Imaging round-trip
         string tempRaw = Path.Combine(Path.GetTempPath(), $"salvus_ipc_deep_{Guid.NewGuid():N}.raw");
+        string tempImgCopy = Path.Combine(Path.GetTempPath(), $"salvus_ipc_img_{Guid.NewGuid():N}.raw");
         string tempRecovered = Path.Combine(Path.GetTempPath(), $"salvus_ipc_rec_{Guid.NewGuid():N}.pdf");
         try
         {
@@ -59,11 +60,21 @@ public sealed class EngineIpcIntegrationTests
 
             var rec = await client.RecoverFileAsync(deepRes.SessionId, deepRes.Files[0].RecordNumber, tempRecovered);
             Assert.Equal((ulong)pdfBytes.Length, rec.BytesWritten);
+            Assert.Equal(64, rec.Sha256Hex.Length);
             Assert.Equal(pdfBytes, await File.ReadAllBytesAsync(tempRecovered));
+
+            var img = await client.CreateDiskImageAsync(tempRaw, tempImgCopy, 2);
+            Assert.Equal((ulong)raw.Length, img.TotalBytesCopied);
+            Assert.Equal(0UL, img.BadSectorCount);
+            Assert.Equal(64, img.Sha256Hex.Length);
+
+            var verify = await client.VerifySha256Async(tempRaw);
+            Assert.Equal(img.Sha256Hex, verify.Sha256Hex);
         }
         finally
         {
             if (File.Exists(tempRaw)) File.Delete(tempRaw);
+            if (File.Exists(tempImgCopy)) File.Delete(tempImgCopy);
             if (File.Exists(tempRecovered)) File.Delete(tempRecovered);
         }
 

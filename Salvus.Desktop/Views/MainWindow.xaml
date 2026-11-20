@@ -481,57 +481,132 @@
 
     <!-- 5. Disk Imaging -->
     <DataTemplate DataType="{x:Type vm:DiskImagingViewModel}">
-      <Border Style="{StaticResource PanelBorderStyle}" VerticalAlignment="Top">
-        <StackPanel>
-          <TextBlock Text="{Binding StatusBadge}" FontWeight="SemiBold" Foreground="{StaticResource StatusWarningBrush}" />
-          <TextBlock Text="Raw Disk Imaging &amp; Verification" FontSize="16" FontWeight="SemiBold" Margin="0,6,0,8" />
-          <TextBlock Text="{Binding Description}" Foreground="{StaticResource TextSecondaryBrush}" TextWrapping="Wrap" Margin="0,0,0,16" />
-          <Button Content="Create Raw Disk Image (Phase 6)" Style="{StaticResource SecondaryButtonStyle}" IsEnabled="False" HorizontalAlignment="Left" />
-        </StackPanel>
-      </Border>
+      <StackPanel>
+        <Border Style="{StaticResource PanelBorderStyle}" Margin="0,0,0,12">
+          <StackPanel>
+            <TextBlock Text="Raw Disk Imaging &amp; SHA-256 Verification" FontSize="15" FontWeight="SemiBold" Margin="0,0,0,4" />
+            <TextBlock Text="Prioritize image-based recovery for unstable storage devices. Source is opened strictly read-only; unreadable sectors are zero-filled and logged to a persistent bad-sector map."
+                       Foreground="{StaticResource TextSecondaryBrush}" TextWrapping="Wrap" Margin="0,0,0,14" />
+
+            <TextBlock Text="Source Physical Disk or Disk Image (e.g. \\.\PhysicalDrive1)" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,4" />
+            <Grid Margin="0,0,0,10">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+              </Grid.ColumnDefinitions>
+              <TextBox Grid.Column="0" Text="{Binding SourcePath, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,8,0" />
+              <Button Grid.Column="1" Content="Browse..." Command="{Binding BrowseSourceCommand}" Style="{StaticResource SecondaryButtonStyle}" />
+            </Grid>
+
+            <TextBlock Text="Separate Destination Raw Image Path (.raw)" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,4" />
+            <Grid Margin="0,0,0,10">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+              </Grid.ColumnDefinitions>
+              <TextBox Grid.Column="0" Text="{Binding DestinationPath, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,8,0" />
+              <Button Grid.Column="1" Content="Save As..." Command="{Binding BrowseDestinationCommand}" Style="{StaticResource SecondaryButtonStyle}" />
+            </Grid>
+
+            <TextBlock Text="Bounded Bad-Sector Retries (0–5)" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,4" />
+            <TextBox Text="{Binding MaxSectorRetries, UpdateSourceTrigger=PropertyChanged}" Width="100" HorizontalAlignment="Left" Margin="0,0,0,14" />
+
+            <StackPanel Orientation="Horizontal">
+              <Button Content="Create Raw Disk Image" Command="{Binding CreateImageCommand}" Style="{StaticResource PrimaryButtonStyle}" Margin="0,0,8,0" />
+              <Button Content="Verify Image SHA-256" Command="{Binding VerifyImageSha256Command}" Style="{StaticResource SecondaryButtonStyle}" />
+            </StackPanel>
+          </StackPanel>
+        </Border>
+
+        <Border Style="{StaticResource PanelBorderStyle}">
+          <StackPanel>
+            <TextBlock Text="IMAGING STATUS &amp; SHA-256 CHECKSUM" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource TextMutedBrush}" />
+            <TextBlock Text="{Binding StatusMessage}" Margin="0,6,0,8" TextWrapping="Wrap" />
+            <TextBox Text="{Binding LastSha256, Mode=OneWay}" IsReadOnly="True" FontFamily="Consolas" FontSize="12" />
+          </StackPanel>
+        </Border>
+      </StackPanel>
     </DataTemplate>
 
     <!-- 6. Recovery History -->
     <DataTemplate DataType="{x:Type vm:RecoveryHistoryViewModel}">
-      <StackPanel>
-        <Border Style="{StaticResource PanelBorderStyle}" Margin="0,0,0,12">
-          <StackPanel>
-            <DockPanel Margin="0,0,0,10">
-              <TextBlock Text="Persisted Scan Sessions" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center" />
-              <Button Content="Refresh" Command="{Binding RefreshCommand}" Style="{StaticResource SecondaryButtonStyle}" HorizontalAlignment="Right" />
-            </DockPanel>
-            <TextBlock Text="No scan sessions recorded yet. Real scan sessions will be persisted to SQLite starting in Phase 3."
-                       Foreground="{StaticResource TextMutedBrush}">
-              <TextBlock.Style>
-                <Style TargetType="TextBlock">
-                  <Setter Property="Visibility" Value="Collapsed" />
-                  <Style.Triggers>
-                    <DataTrigger Binding="{Binding ScanSessions.Count}" Value="0">
-                      <Setter Property="Visibility" Value="Visible" />
-                    </DataTrigger>
-                  </Style.Triggers>
-                </Style>
-              </TextBlock.Style>
-            </TextBlock>
-            <ItemsControl ItemsSource="{Binding ScanSessions}">
-              <ItemsControl.ItemTemplate>
-                <DataTemplate>
-                  <Border BorderBrush="{StaticResource BorderSubtleBrush}" BorderThickness="0,1,0,0" Padding="0,8">
-                    <TextBlock>
-                      <Run Text="{Binding TargetDisplayName, Mode=OneWay}" FontWeight="SemiBold" />
-                      <Run Text=" — " />
-                      <Run Text="{Binding Status, Mode=OneWay}" />
-                      <Run Text=" (" />
-                      <Run Text="{Binding DiscoveredFileCount, Mode=OneWay}" />
-                      <Run Text=" files)" />
-                    </TextBlock>
-                  </Border>
-                </DataTemplate>
-              </ItemsControl.ItemTemplate>
-            </ItemsControl>
-          </StackPanel>
-        </Border>
-      </StackPanel>
+      <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="0,0,0,16">
+          <Border Style="{StaticResource PanelBorderStyle}" Margin="0,0,0,12">
+            <StackPanel>
+              <DockPanel Margin="0,0,0,10">
+                <TextBlock Text="Persisted Scan Sessions" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center" />
+                <Button Content="Refresh" Command="{Binding RefreshCommand}" Style="{StaticResource SecondaryButtonStyle}" HorizontalAlignment="Right" />
+              </DockPanel>
+              <TextBlock Text="No scan sessions recorded yet." Foreground="{StaticResource TextMutedBrush}">
+                <TextBlock.Style>
+                  <Style TargetType="TextBlock">
+                    <Setter Property="Visibility" Value="Collapsed" />
+                    <Style.Triggers>
+                      <DataTrigger Binding="{Binding ScanSessions.Count}" Value="0">
+                        <Setter Property="Visibility" Value="Visible" />
+                      </DataTrigger>
+                    </Style.Triggers>
+                  </Style>
+                </TextBlock.Style>
+              </TextBlock>
+              <ItemsControl ItemsSource="{Binding ScanSessions}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate>
+                    <Border BorderBrush="{StaticResource BorderSubtleBrush}" BorderThickness="0,1,0,0" Padding="0,8">
+                      <TextBlock>
+                        <Run Text="{Binding TargetDisplayName, Mode=OneWay}" FontWeight="SemiBold" />
+                        <Run Text=" · " />
+                        <Run Text="{Binding Mode, Mode=OneWay}" Foreground="{StaticResource AccentBlueBrush}" />
+                        <Run Text=" · " />
+                        <Run Text="{Binding Status, Mode=OneWay}" />
+                        <Run Text=" (" />
+                        <Run Text="{Binding DiscoveredFileCount, Mode=OneWay}" />
+                        <Run Text=" files)" />
+                      </TextBlock>
+                    </Border>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+          </Border>
+
+          <Border Style="{StaticResource PanelBorderStyle}">
+            <StackPanel>
+              <TextBlock Text="Recovery Operations &amp; SHA-256 Audit Log" FontSize="15" FontWeight="SemiBold" Margin="0,0,0,10" />
+              <TextBlock Text="No recovered files recorded yet." Foreground="{StaticResource TextMutedBrush}">
+                <TextBlock.Style>
+                  <Style TargetType="TextBlock">
+                    <Setter Property="Visibility" Value="Collapsed" />
+                    <Style.Triggers>
+                      <DataTrigger Binding="{Binding RecoveryRecords.Count}" Value="0">
+                        <Setter Property="Visibility" Value="Visible" />
+                      </DataTrigger>
+                    </Style.Triggers>
+                  </Style>
+                </TextBlock.Style>
+              </TextBlock>
+              <ItemsControl ItemsSource="{Binding RecoveryRecords}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate>
+                    <Border BorderBrush="{StaticResource BorderSubtleBrush}" BorderThickness="0,1,0,0" Padding="0,8">
+                      <StackPanel>
+                        <TextBlock Text="{Binding DestinationPath}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                        <TextBlock FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,2,0,0">
+                          <Run Text="Files: " />
+                          <Run Text="{Binding RecoveredFileCount, Mode=OneWay}" />
+                          <Run Text=" · SHA-256: " />
+                          <Run Text="{Binding ReportSha256, Mode=OneWay, FallbackValue='—'}" />
+                        </TextBlock>
+                      </StackPanel>
+                    </Border>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+          </Border>
+        </StackPanel>
+      </ScrollViewer>
     </DataTemplate>
 
     <!-- 7. Settings -->
