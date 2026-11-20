@@ -2,8 +2,11 @@
 #include "common/version.hpp"
 #include "device/device_manager.hpp"
 #include "disk/disk_reader.hpp"
+#include "filesystem/exfat_parser.hpp"
+#include "filesystem/fat32_parser.hpp"
 #include "filesystem/filesystem_detector.hpp"
 #include "filesystem/ntfs_parser.hpp"
+#include "partition/partition_analyzer.hpp"
 #include "recovery/recovery_components.hpp"
 #include "scanner/deep_scanner.hpp"
 
@@ -475,7 +478,7 @@ DispatchResult CommandDispatcher::Dispatch(const IpcRequest& request) const {
             "\"rawDiskReadOnly\":{\"implemented\":true,\"phase\":\"Phase 2\",\"notes\":\"Active strictly read-only sector/byte reader for disks, volumes, and raw images.\"},"
             "\"ntfsRecovery\":{\"implemented\":true,\"phase\":\"Phase 3\",\"notes\":\"Active NTFS boot sector, MFT parsing, deleted file detection, fragmented extent reconstruction, and separate-destination recovery.\"},"
             "\"deepSignatureCarving\":{\"implemented\":true,\"phase\":\"Phase 4\",\"notes\":\"Active signature database (27+ built-in file types), bounded streaming carving, boundary detection, and safe non-executing previews.\"},"
-            "\"fat32ExfatGptMbr\":{\"implemented\":false,\"phase\":\"Phase 5\",\"notes\":\"Scheduled for Phase 5 (Additional File Systems).\"},"
+            "\"fat32ExfatGptMbr\":{\"implemented\":true,\"phase\":\"Phase 5\",\"notes\":\"Active FAT32 (LFN + clusters), exFAT (entry sets), MBR, GPT (primary & backup CRC32), and non-destructive lost partition detection.\"},"
             "\"diskImaging\":{\"implemented\":false,\"phase\":\"Phase 6\",\"notes\":\"Scheduled for Phase 6 (Professional Features).\"}"
             "}";
         return result;
@@ -561,12 +564,12 @@ DispatchResult CommandDispatcher::Dispatch(const IpcRequest& request) const {
         return result;
     }
 
-    if (request.command == "quick_scan_ntfs") {
+    if (request.command == "quick_scan" || request.command == "quick_scan_ntfs") {
         const auto targetPos = FindTopLevelJsonValueStart(request.payloadJson, "targetPath");
         if (!targetPos) {
             result.response.ok = false;
             result.response.errorCode = "ERR_INVALID_ARGUMENT";
-            result.response.errorMessage = "quick_scan_ntfs requires payload.targetPath.";
+            result.response.errorMessage = "quick_scan requires payload.targetPath.";
             return result;
         }
         const auto targetRes = ExtractJsonStringValue(request.payloadJson, *targetPos);
@@ -577,16 +580,17 @@ DispatchResult CommandDispatcher::Dispatch(const IpcRequest& request) const {
             return result;
         }
 
-        salvus::filesystem::NtfsScanOptions scanOpts{};
+        bool includeActive = false;
+        std::uint64_t maxRecords = 250000ULL;
         if (const auto incPos = FindTopLevelJsonValueStart(request.payloadJson, "includeActive")) {
             if (const auto incBool = ExtractJsonBoolValue(request.payloadJson, *incPos)) {
-                scanOpts.includeActiveFiles = *incBool;
+                includeActive = *incBool;
             }
         }
         if (const auto maxPos = FindTopLevelJsonValueStart(request.payloadJson, "maxRecords")) {
             const auto maxRes = ExtractJsonUint64Value(request.payloadJson, *maxPos);
             if (maxRes.ok() && maxRes.value() > 0ULL) {
-                scanOpts.maxMftRecords = maxRes.value();
+                maxRecords = maxRes.value();
             }
         }
 
@@ -601,17 +605,71 @@ DispatchResult CommandDispatcher::Dispatch(const IpcRequest& request) const {
             return result;
         }
 
-        salvus::filesystem::NTFSParser parser;
-        const auto scanRes = parser.ScanVolume(reader, scanOpts);
-        if (!scanRes.ok()) {
+        std::vector<std::uint8_t> bootSector(512U, 0U);
+        const auto bootRead = reader.ReadBytes(0ULL, bootSector);
+        if (!bootRead.ok() || bootRead.value() < 512U) {
             result.response.ok = false;
-            result.response.errorCode = "ERR_NTFS_SCAN";
-            result.response.errorMessage = scanRes.error().message;
+            result.response.errorCode = "ERR_READ_BOOT";
+            result.response.errorMessage = "Failed to read volume boot sector.";
+            return result;
+        }
+
+        salvus::filesystem::FileSystemDetector detector;
+        const auto fsRes = detector.Detect(bootSector);
+        const auto fsType = fsRes.ok() ? fsRes.value() : salvus::filesystem::FileSystemType::Raw;
+
+        std::string fsName = salvus::filesystem::FileSystemTypeToString(fsType);
+        std::uint64_t scannedCount = 0;
+        std::uint32_t clusterBytes = reader.geometry().bytesPerSector;
+        std::vector<salvus::filesystem::NtfsFileEntry> entries;
+
+        if (fsType == salvus::filesystem::FileSystemType::Ntfs) {
+            salvus::filesystem::NTFSParser parser;
+            salvus::filesystem::NtfsScanOptions scanOpts{includeActive, maxRecords};
+            const auto scanRes = parser.ScanVolume(reader, scanOpts);
+            if (!scanRes.ok()) {
+                result.response.ok = false;
+                result.response.errorCode = "ERR_NTFS_SCAN";
+                result.response.errorMessage = scanRes.error().message;
+                return result;
+            }
+            scannedCount = scanRes.value().mftRecordsScanned;
+            clusterBytes = scanRes.value().bootSector.clusterSizeBytes;
+            entries = scanRes.value().entries;
+        } else if (fsType == salvus::filesystem::FileSystemType::Fat32) {
+            salvus::filesystem::FAT32Parser parser;
+            const auto scanRes = parser.ScanVolume(reader, includeActive);
+            if (!scanRes.ok()) {
+                result.response.ok = false;
+                result.response.errorCode = "ERR_FAT32_SCAN";
+                result.response.errorMessage = scanRes.error().message;
+                return result;
+            }
+            scannedCount = scanRes.value().directoriesScanned;
+            clusterBytes = scanRes.value().bootSector.clusterSizeBytes;
+            entries = scanRes.value().entries;
+        } else if (fsType == salvus::filesystem::FileSystemType::ExFat) {
+            salvus::filesystem::ExFATParser parser;
+            const auto scanRes = parser.ScanVolume(reader, includeActive);
+            if (!scanRes.ok()) {
+                result.response.ok = false;
+                result.response.errorCode = "ERR_EXFAT_SCAN";
+                result.response.errorMessage = scanRes.error().message;
+                return result;
+            }
+            scannedCount = scanRes.value().directoriesScanned;
+            clusterBytes = scanRes.value().bootSector.clusterSizeBytes;
+            entries = scanRes.value().entries;
+        } else {
+            result.response.ok = false;
+            result.response.errorCode = "ERR_UNSUPPORTED_FS";
+            result.response.errorMessage =
+                "Unsupported or RAW file system (" + fsName + ") for Quick Scan. Use Deep Scan for raw signature carving.";
             return result;
         }
 
         const std::uint64_t seq = sessions_->nextSessionSeq.fetch_add(1ULL);
-        const std::string sessionId = "ntfs-" + std::to_string(GetCurrentProcessIdSafe()) + "-" + std::to_string(seq);
+        const std::string sessionId = "quick-" + std::to_string(GetCurrentProcessIdSafe()) + "-" + std::to_string(seq);
 
         SessionStore::CachedNtfsSession cached{};
         cached.targetPath = wideTarget;
@@ -619,12 +677,11 @@ DispatchResult CommandDispatcher::Dispatch(const IpcRequest& request) const {
         std::ostringstream payload;
         payload << "{"
                 << "\"sessionId\":\"" << EscapeJsonString(sessionId) << "\","
-                << "\"fileSystem\":\"NTFS\","
-                << "\"mftRecordsScanned\":" << scanRes.value().mftRecordsScanned << ","
-                << "\"clusterSizeBytes\":" << scanRes.value().bootSector.clusterSizeBytes << ","
+                << "\"fileSystem\":\"" << EscapeJsonString(fsName) << "\","
+                << "\"mftRecordsScanned\":" << scannedCount << ","
+                << "\"clusterSizeBytes\":" << clusterBytes << ","
                 << "\"files\":[";
 
-        const auto& entries = scanRes.value().entries;
         for (std::size_t i = 0; i < entries.size(); ++i) {
             const auto& e = entries[i];
             if (i > 0) {
@@ -660,6 +717,71 @@ DispatchResult CommandDispatcher::Dispatch(const IpcRequest& request) const {
             sessions_->sessions[sessionId] = std::move(cached);
         }
 
+        result.response.ok = true;
+        result.response.payloadJson = payload.str();
+        return result;
+    }
+
+    if (request.command == "analyze_partitions") {
+        const auto targetPos = FindTopLevelJsonValueStart(request.payloadJson, "targetPath");
+        if (!targetPos) {
+            result.response.ok = false;
+            result.response.errorCode = "ERR_INVALID_ARGUMENT";
+            result.response.errorMessage = "analyze_partitions requires payload.targetPath.";
+            return result;
+        }
+        const auto targetRes = ExtractJsonStringValue(request.payloadJson, *targetPos);
+        if (!targetRes.ok() || targetRes.value().empty()) {
+            result.response.ok = false;
+            result.response.errorCode = "ERR_INVALID_ARGUMENT";
+            result.response.errorMessage = "Invalid payload.targetPath.";
+            return result;
+        }
+
+        salvus::disk::DiskReader reader;
+        const auto openRes = reader.OpenReadOnly(Utf8ToWide(targetRes.value()));
+        if (!openRes.ok()) {
+            result.response.ok = false;
+            result.response.errorCode =
+                openRes.error().code == StatusCode::AccessDenied ? "ERR_ACCESS_DENIED" : "ERR_OPEN_TARGET";
+            result.response.errorMessage = openRes.error().message;
+            return result;
+        }
+
+        salvus::partition::PartitionAnalyzer analyzer;
+        const auto partRes = analyzer.Analyze(reader, true);
+        if (!partRes.ok()) {
+            result.response.ok = false;
+            result.response.errorCode = "ERR_PARTITION_ANALYSIS";
+            result.response.errorMessage = partRes.error().message;
+            return result;
+        }
+
+        const auto& analysis = partRes.value();
+        std::ostringstream payload;
+        payload << "{"
+                << "\"scheme\":\"" << EscapeJsonString(salvus::partition::PartitionSchemeToString(analysis.scheme)) << "\","
+                << "\"primaryGptValid\":" << (analysis.primaryGptValid ? "true" : "false") << ","
+                << "\"backupGptValid\":" << (analysis.backupGptValid ? "true" : "false") << ","
+                << "\"partitions\":[";
+
+        for (std::size_t i = 0; i < analysis.partitions.size(); ++i) {
+            const auto& p = analysis.partitions[i];
+            if (i > 0) {
+                payload << ",";
+            }
+            payload << "{"
+                    << "\"index\":" << p.index << ","
+                    << "\"startOffsetBytes\":" << p.startOffsetBytes << ","
+                    << "\"lengthBytes\":" << p.lengthBytes << ","
+                    << "\"name\":\"" << EscapeJsonString(p.name) << "\","
+                    << "\"typeDescription\":\"" << EscapeJsonString(p.typeDescription) << "\","
+                    << "\"detectedFileSystem\":\"" << EscapeJsonString(p.detectedFileSystem) << "\","
+                    << "\"isLostCandidate\":" << (p.isLostCandidate ? "true" : "false") << ","
+                    << "\"isFromBackupGpt\":" << (p.isFromBackupGpt ? "true" : "false")
+                    << "}";
+        }
+        payload << "]}";
         result.response.ok = true;
         result.response.payloadJson = payload.str();
         return result;

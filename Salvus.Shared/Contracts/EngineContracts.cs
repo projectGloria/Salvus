@@ -120,6 +120,29 @@ public sealed record FilePreviewResult(
     ulong BytesRead,
     bool Truncated);
 
+public sealed record PartitionEntryDto(
+    uint Index,
+    ulong StartOffsetBytes,
+    ulong LengthBytes,
+    string Name,
+    string TypeDescription,
+    string DetectedFileSystem,
+    bool IsLostCandidate,
+    bool IsFromBackupGpt)
+{
+    public string LengthFormatted => ByteSizeFormatter.Format(LengthBytes);
+    public string OffsetFormatted => $"0x{StartOffsetBytes:X}";
+    public string StatusBadge => IsLostCandidate
+        ? "Lost Candidate"
+        : (IsFromBackupGpt ? "Backup GPT" : "Active");
+}
+
+public sealed record PartitionAnalysisDto(
+    string Scheme,
+    bool PrimaryGptValid,
+    bool BackupGptValid,
+    IReadOnlyList<PartitionEntryDto> Partitions);
+
 public static class ByteSizeFormatter
 {
     private static readonly string[] Units = ["B", "KiB", "MiB", "GiB", "TiB", "PiB"];

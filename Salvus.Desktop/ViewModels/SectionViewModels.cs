@@ -284,9 +284,12 @@ public sealed class RecoveryViewModel : ViewModelBase
         private set => SetProperty(ref _scanStatusMessage, value);
     }
 
+    public ObservableCollection<PartitionEntryDto> DiscoveredPartitions { get; } = new();
+
     public ICommand BrowseImageCommand { get; }
     public ICommand StartNtfsQuickScanCommand { get; }
     public ICommand StartDeepScanCommand { get; }
+    public ICommand AnalyzePartitionsCommand { get; }
 
     public RecoveryViewModel(
         IEngineIpcClient ipcClient,
@@ -312,6 +315,51 @@ public sealed class RecoveryViewModel : ViewModelBase
 
         StartNtfsQuickScanCommand = new AsyncRelayCommand(StartNtfsQuickScanAsync);
         StartDeepScanCommand = new AsyncRelayCommand(StartDeepScanAsync);
+        AnalyzePartitionsCommand = new AsyncRelayCommand(AnalyzePartitionsAsync);
+    }
+
+    public async Task AnalyzePartitionsAsync()
+    {
+        if (string.IsNullOrWhiteSpace(TargetPath))
+        {
+            ScanStatusMessage = "Specify a target physical disk or raw disk image file first.";
+            return;
+        }
+
+        IsScanning = true;
+        ScanStatusMessage = "Analyzing MBR/GPT partition tables and scanning for lost partitions (strictly non-destructive)...";
+
+        try
+        {
+            if (!_ipcClient.IsConnected)
+            {
+                bool connected = await _ipcClient.EnsureEngineStartedAndConnectedAsync();
+                if (!connected)
+                {
+                    ScanStatusMessage = "Salvus.Engine is offline.";
+                    return;
+                }
+            }
+
+            PartitionAnalysisDto analysis = await _ipcClient.AnalyzePartitionsAsync(TargetPath.Trim());
+            DiscoveredPartitions.Clear();
+            foreach (var p in analysis.Partitions)
+            {
+                DiscoveredPartitions.Add(p);
+            }
+
+            int lostCount = analysis.Partitions.Count(p => p.IsLostCandidate);
+            ScanStatusMessage =
+                $"Partition analysis complete: Scheme={analysis.Scheme} (Primary GPT={analysis.PrimaryGptValid}, Backup GPT={analysis.BackupGptValid}), {analysis.Partitions.Count} partition(s) found ({lostCount} lost candidate(s)). No partition tables were modified.";
+        }
+        catch (Exception ex)
+        {
+            ScanStatusMessage = $"Partition analysis failed: {ex.Message}";
+        }
+        finally
+        {
+            IsScanning = false;
+        }
     }
 
     public async Task StartDeepScanAsync()
@@ -699,7 +747,7 @@ public sealed class AboutViewModel : ViewModelBase
 
     public string ProductName => "Salvus";
     public string Tagline => "Recover what matters.";
-    public string Version => "0.4.0 — Phase 4 (Deep Scanning)";
+    public string Version => "0.5.0 — Phase 5 (Additional File Systems)";
     public string License => "GNU General Public License v3.0 or later (GPL-3.0-or-later)";
     public string Platform => "Windows 10 / Windows 11 (x64)";
 

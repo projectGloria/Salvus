@@ -17,6 +17,7 @@ add_executable(salvus_engine_tests
     device_manager_tests.cpp
     ntfs_parser_tests.cpp
     deep_scanner_tests.cpp
+    fat32_exfat_partition_tests.cpp
 )
 
 target_link_libraries(salvus_engine_tests

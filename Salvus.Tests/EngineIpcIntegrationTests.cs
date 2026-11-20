@@ -34,7 +34,8 @@ public sealed class EngineIpcIntegrationTests
         Assert.True(caps.RawDiskReadOnly.Implemented);
         Assert.True(caps.NtfsRecovery.Implemented);
         Assert.True(caps.DeepSignatureCarving.Implemented);
-        Assert.False(caps.Fat32ExfatGptMbr.Implemented);
+        Assert.True(caps.Fat32ExfatGptMbr.Implemented);
+        Assert.False(caps.DiskImaging.Implemented);
 
         // Live Deep Scan + Safe Preview + Recover round-trip on disposable raw image
         string tempRaw = Path.Combine(Path.GetTempPath(), $"salvus_ipc_deep_{Guid.NewGuid():N}.raw");

@@ -300,7 +300,7 @@
                       Margin="0,0,0,14" />
 
             <StackPanel Orientation="Horizontal">
-              <Button Content="Start NTFS Quick Scan"
+              <Button Content="Start Quick Scan (NTFS / FAT32 / exFAT)"
                       Command="{Binding StartNtfsQuickScanCommand}"
                       Style="{StaticResource PrimaryButtonStyle}"
                       Margin="0,0,8,0" />
@@ -308,17 +308,45 @@
                       Command="{Binding StartDeepScanCommand}"
                       Style="{StaticResource SecondaryButtonStyle}"
                       Margin="0,0,8,0" />
-              <Button Content="Partition Recovery (Phase 5)"
-                      Style="{StaticResource SecondaryButtonStyle}"
-                      IsEnabled="False" />
+              <Button Content="Partition Recovery (Non-Destructive)"
+                      Command="{Binding AnalyzePartitionsCommand}"
+                      Style="{StaticResource SecondaryButtonStyle}" />
             </StackPanel>
+          </StackPanel>
+        </Border>
+
+        <Border Style="{StaticResource PanelBorderStyle}" Margin="0,0,0,12">
+          <StackPanel>
+            <TextBlock Text="SCAN STATUS" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource TextMutedBrush}" />
+            <TextBlock Text="{Binding ScanStatusMessage}" Margin="0,6,0,0" TextWrapping="Wrap" />
           </StackPanel>
         </Border>
 
         <Border Style="{StaticResource PanelBorderStyle}">
           <StackPanel>
-            <TextBlock Text="SCAN STATUS" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource TextMutedBrush}" />
-            <TextBlock Text="{Binding ScanStatusMessage}" Margin="0,6,0,0" TextWrapping="Wrap" />
+            <TextBlock Text="PARTITION RECOVERY CANDIDATES (NON-DESTRUCTIVE)" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,8" />
+            <ItemsControl ItemsSource="{Binding DiscoveredPartitions}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                  <Border BorderBrush="{StaticResource BorderSubtleBrush}" BorderThickness="0,1,0,0" Padding="0,6">
+                    <Grid>
+                      <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="210" />
+                        <ColumnDefinition Width="110" />
+                        <ColumnDefinition Width="110" />
+                        <ColumnDefinition Width="110" />
+                        <ColumnDefinition Width="*" />
+                      </Grid.ColumnDefinitions>
+                      <TextBlock Grid.Column="0" Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                      <TextBlock Grid.Column="1" Text="{Binding DetectedFileSystem}" Foreground="{StaticResource TextSecondaryBrush}" />
+                      <TextBlock Grid.Column="2" Text="{Binding LengthFormatted}" />
+                      <TextBlock Grid.Column="3" Text="{Binding StatusBadge}" FontWeight="SemiBold" Foreground="{StaticResource AccentBlueBrush}" />
+                      <TextBlock Grid.Column="4" Text="{Binding OffsetFormatted}" Foreground="{StaticResource TextMutedBrush}" />
+                    </Grid>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
           </StackPanel>
         </Border>
       </StackPanel>

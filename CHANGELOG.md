@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added — Phase 5: Additional File Systems & Partition Recovery
+- Implemented `FAT32Parser` (BPB validation, FAT cluster chain traversal, 8.3 & Long File Name reconstruction, `0xE5` deleted entry detection, contiguous deleted cluster recovery).
+- Implemented `ExFATParser` (VBR validation, File/StreamExtension/FileName entry set parsing, `NoFatChain` & FAT chain extent reconstruction, deleted entry analysis).
+- Implemented non-destructive `PartitionAnalyzer` (MBR partition table parsing, GPT primary & backup header parsing with CRC32 verification, and lost partition detection via unallocated boot-sector scanning).
+- Added unified `quick_scan` (auto-detecting NTFS, FAT32, and exFAT) and `analyze_partitions` Named Pipe IPC commands.
+- Enabled **Partition Recovery (Non-Destructive)** and unified Quick Scan in `Salvus.Desktop`.
+- Added GoogleTest suites for FAT32 LFN recovery, exFAT deleted entry recovery, and Backup GPT CRC32 fallback + lost NTFS partition detection.
+
 ### Added — Phase 4: Deep Scanning
 - Implemented extensible `SignatureDatabase` with 27+ built-in file signatures across Images (JPG, PNG, GIF, BMP, TIFF, WebP, ICO), Video (MP4, AVI, MKV, WMV, MPEG), Audio (MP3, WAV, FLAC, OGG), Documents (PDF, OLE2/DOC, RTF), Archives (ZIP/OOXML, RAR, 7Z, GZIP, TAR), and Binaries (PE/EXE with PE header validation).
 - Implemented bounded streaming `DeepScanner` (4 MiB read buffer, 256 KiB footer search window) supporting footer matching, embedded BMP/RIFF size parsing, ZIP EOCD boundary detection, and honest `Low` / `Damaged` confidence classification with fragmentation caveats.
