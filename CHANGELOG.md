@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added — Phase 2: Storage Access
+- Implemented native Windows physical disk enumeration (`DeviceManager::EnumeratePhysicalDisks`) via SetupAPI (`GUID_DEVINTERFACE_DISK`) and `IOCTL_STORAGE_QUERY_PROPERTY` / `IOCTL_DISK_GET_DRIVE_GEOMETRY_EX` / `IOCTL_DISK_GET_DRIVE_LAYOUT_EX`.
+- Implemented native Windows logical volume enumeration (`DeviceManager::EnumerateVolumes`) mapped to parent physical disk indices via `IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS`.
+- Implemented strictly read-only `DiskReader` (`GENERIC_READ`, `OPEN_EXISTING`) supporting aligned sector reads and transparently sector-aligned arbitrary byte-range reads across raw devices and virtual disk images.
+- Added `list_devices` and `list_volumes` Named Pipe IPC commands and process elevation detection (`isElevated`).
+- Wired `Salvus.Desktop` Dashboard and Drives views to display real enumerated physical disks and logical volumes with clear distinction between physical drives and partitions.
+- Added GoogleTest suites for `DiskReader` (synthetic raw disk image) and `DeviceManager`, plus end-to-end .NET live IPC integration assertions for device and volume enumeration.
+
 ### Added — Phase 1: Foundation
 - Established monorepo structure (`Salvus.Engine`, `Salvus.Shared`, `Salvus.Data`, `Salvus.Desktop`, `Salvus.Tests`).
 - Configured C++20 recovery engine (`Salvus.Engine`) with CMake, MSVC, Windows resource icon embedding, and GoogleTest.

@@ -8,8 +8,8 @@
 
 Salvus is an open-source, professional-grade Windows data recovery application designed for Windows 10 and Windows 11 (x64). It combines a dedicated C++20 recovery engine with a dark-first .NET 10 WPF desktop application connected over secured Windows Named Pipes.
 
-> **Current Status: Phase 1 — Foundation**  
-> The monorepo structure, C++20 engine process, .NET 10 WPF desktop shell, Named Pipe IPC protocol, SQLite persistence layer, official branding integration, and CI workflows are established. Storage enumeration, file-system parsers, deep carving, and disk imaging are scheduled for Phases 2–6 and are clearly marked as under development in the interface.
+> **Current Status: Phase 2 — Storage Access Complete**  
+> The monorepo foundation, C++20 recovery engine process, .NET 10 WPF desktop shell, secured Named Pipe IPC protocol, SQLite persistence layer, official branding integration, native Windows physical disk and logical volume enumeration, and strictly read-only sector/byte disk reader are implemented and tested. NTFS recovery, deep signature carving, additional file systems, and disk imaging are scheduled for Phases 3–6.
 
 ## Core Principles
 

@@ -16,6 +16,8 @@ public interface IEngineIpcClient : IAsyncDisposable
     Task<PingResult> PingAsync(CancellationToken cancellationToken = default);
     Task<EngineInfo> GetEngineInfoAsync(CancellationToken cancellationToken = default);
     Task<EngineCapabilities> GetCapabilitiesAsync(CancellationToken cancellationToken = default);
+    Task<DeviceListResult> ListDevicesAsync(CancellationToken cancellationToken = default);
+    Task<VolumeListResult> ListVolumesAsync(CancellationToken cancellationToken = default);
     Task ShutdownEngineAsync(CancellationToken cancellationToken = default);
 }
 
@@ -120,6 +122,12 @@ public sealed class EngineIpcClient : IEngineIpcClient
 
     public Task<EngineCapabilities> GetCapabilitiesAsync(CancellationToken cancellationToken = default) =>
         SendCommandAsync<EngineCapabilities>("get_capabilities", cancellationToken);
+
+    public Task<DeviceListResult> ListDevicesAsync(CancellationToken cancellationToken = default) =>
+        SendCommandAsync<DeviceListResult>("list_devices", cancellationToken);
+
+    public Task<VolumeListResult> ListVolumesAsync(CancellationToken cancellationToken = default) =>
+        SendCommandAsync<VolumeListResult>("list_volumes", cancellationToken);
 
     public async Task ShutdownEngineAsync(CancellationToken cancellationToken = default)
     {

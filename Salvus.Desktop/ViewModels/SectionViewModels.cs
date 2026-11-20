@@ -16,9 +16,12 @@ public sealed class DashboardViewModel : ViewModelBase
     private bool _isEngineConnected;
     private string _engineStatusText = "Not connected";
     private string _engineVersion = "—";
-    private string _developmentPhase = "Phase 1 - Foundation";
+    private string _developmentPhase = "Phase 2 - Storage Access";
     private uint _engineProcessId;
     private string _lastPingUtc = "—";
+    private int _physicalDiskCount;
+    private int _volumeCount;
+    private string _storageAccessSummary = "Waiting for engine...";
     private int _recentScanCount;
     private int _recentRecoveryCount;
 
@@ -56,6 +59,24 @@ public sealed class DashboardViewModel : ViewModelBase
     {
         get => _lastPingUtc;
         private set => SetProperty(ref _lastPingUtc, value);
+    }
+
+    public int PhysicalDiskCount
+    {
+        get => _physicalDiskCount;
+        private set => SetProperty(ref _physicalDiskCount, value);
+    }
+
+    public int VolumeCount
+    {
+        get => _volumeCount;
+        private set => SetProperty(ref _volumeCount, value);
+    }
+
+    public string StorageAccessSummary
+    {
+        get => _storageAccessSummary;
+        private set => SetProperty(ref _storageAccessSummary, value);
     }
 
     public int RecentScanCount
@@ -111,6 +132,8 @@ public sealed class DashboardViewModel : ViewModelBase
             PingResult ping = await _ipcClient.PingAsync();
             EngineInfo info = await _ipcClient.GetEngineInfoAsync();
             EngineCapabilities caps = await _ipcClient.GetCapabilitiesAsync();
+            DeviceListResult devices = await _ipcClient.ListDevicesAsync();
+            VolumeListResult volumes = await _ipcClient.ListVolumesAsync();
 
             IsEngineConnected = true;
             EngineStatusText = $"Connected ({info.EngineName} — {info.BuildConfiguration})";
@@ -118,6 +141,11 @@ public sealed class DashboardViewModel : ViewModelBase
             DevelopmentPhase = info.DevelopmentPhase;
             EngineProcessId = info.ProcessId;
             LastPingUtc = ping.UtcTimestamp;
+            PhysicalDiskCount = devices.Devices.Count;
+            VolumeCount = volumes.Volumes.Count;
+            StorageAccessSummary = devices.IsElevated
+                ? "Elevated — Raw read-only physical disk access enabled"
+                : "Standard user — Run as Administrator for raw physical disk sector reads";
 
             Capabilities.Clear();
             AddCapability("Named Pipe IPC Protocol", caps.IpcNamedPipes);
@@ -149,9 +177,73 @@ public sealed class DashboardViewModel : ViewModelBase
 
 public sealed class DrivesViewModel : ViewModelBase
 {
-    public string StatusBadge => "Scheduled for Phase 2 — Storage Access";
-    public string Description =>
-        "Physical disk enumeration, logical volume mapping, device geometry, and read-only raw storage access will be implemented in Salvus.Engine during Phase 2. No simulated drives are displayed.";
+    private readonly IEngineIpcClient _ipcClient;
+    private bool _isElevated;
+    private string _statusMessage = "Loading storage devices...";
+
+    public ObservableCollection<StorageDeviceDto> PhysicalDisks { get; } = new();
+    public ObservableCollection<VolumeDto> Volumes { get; } = new();
+
+    public bool IsElevated
+    {
+        get => _isElevated;
+        private set => SetProperty(ref _isElevated, value);
+    }
+
+    public string StatusMessage
+    {
+        get => _statusMessage;
+        private set => SetProperty(ref _statusMessage, value);
+    }
+
+    public ICommand RefreshCommand { get; }
+
+    public DrivesViewModel(IEngineIpcClient ipcClient)
+    {
+        _ipcClient = ipcClient;
+        RefreshCommand = new AsyncRelayCommand(RefreshAsync);
+    }
+
+    public async Task RefreshAsync()
+    {
+        try
+        {
+            if (!_ipcClient.IsConnected)
+            {
+                bool connected = await _ipcClient.EnsureEngineStartedAndConnectedAsync();
+                if (!connected)
+                {
+                    StatusMessage = "Salvus.Engine is offline. Cannot enumerate storage devices.";
+                    return;
+                }
+            }
+
+            DeviceListResult devRes = await _ipcClient.ListDevicesAsync();
+            VolumeListResult volRes = await _ipcClient.ListVolumesAsync();
+
+            IsElevated = devRes.IsElevated;
+
+            PhysicalDisks.Clear();
+            foreach (var d in devRes.Devices)
+            {
+                PhysicalDisks.Add(d);
+            }
+
+            Volumes.Clear();
+            foreach (var v in volRes.Volumes)
+            {
+                Volumes.Add(v);
+            }
+
+            StatusMessage = IsElevated
+                ? $"Detected {PhysicalDisks.Count} physical disk(s) and {Volumes.Count} logical volume(s). Raw read-only access is available."
+                : $"Detected {PhysicalDisks.Count} physical disk(s) and {Volumes.Count} logical volume(s). Launch Salvus as Administrator to enable raw physical disk sector reading.";
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Enumeration error: {ex.Message}";
+        }
+    }
 }
 
 public sealed class RecoveryViewModel : ViewModelBase
@@ -266,7 +358,7 @@ public sealed class AboutViewModel : ViewModelBase
 
     public string ProductName => "Salvus";
     public string Tagline => "Recover what matters.";
-    public string Version => "0.1.0 — Phase 1 (Foundation)";
+    public string Version => "0.2.0 — Phase 2 (Storage Access)";
     public string License => "GNU General Public License v3.0 or later (GPL-3.0-or-later)";
     public string Platform => "Windows 10 / Windows 11 (x64)";
 

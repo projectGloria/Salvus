@@ -13,6 +13,8 @@ FetchContent_MakeAvailable(googletest)
 add_executable(salvus_engine_tests
     ipc_protocol_tests.cpp
     disk_validation_tests.cpp
+    disk_reader_tests.cpp
+    device_manager_tests.cpp
 )
 
 target_link_libraries(salvus_engine_tests

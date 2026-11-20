@@ -1,5 +1,6 @@
 #include "common/ipc_protocol.hpp"
 #include "common/version.hpp"
+#include "device/device_manager.hpp"
 
 #include <charconv>
 #include <chrono>
@@ -323,7 +324,8 @@ DispatchResult CommandDispatcher::Dispatch(const IpcRequest& request) const {
                 << "\"protocolVersion\":" << kIpcProtocolVersion << ","
                 << "\"buildConfiguration\":\"" << kBuildConfiguration << "\","
                 << "\"platform\":\"Windows x64\","
-                << "\"processId\":" << GetCurrentProcessIdSafe()
+                << "\"processId\":" << GetCurrentProcessIdSafe() << ","
+                << "\"isElevated\":" << (salvus::device::IsProcessElevated() ? "true" : "false")
                 << "}";
         result.response.payloadJson = payload.str();
         return result;
@@ -335,13 +337,93 @@ DispatchResult CommandDispatcher::Dispatch(const IpcRequest& request) const {
             "{"
             "\"ipcNamedPipes\":{\"implemented\":true,\"phase\":\"Phase 1\",\"notes\":\"Active length-prefixed JSON over secured Windows Named Pipes.\"},"
             "\"diskOffsetValidation\":{\"implemented\":true,\"phase\":\"Phase 1\",\"notes\":\"Active bounds, overflow, and sector alignment validation.\"},"
-            "\"deviceEnumeration\":{\"implemented\":false,\"phase\":\"Phase 2\",\"notes\":\"Scheduled for Phase 2 (Storage Access).\"},"
-            "\"rawDiskReadOnly\":{\"implemented\":false,\"phase\":\"Phase 2\",\"notes\":\"Scheduled for Phase 2 (Storage Access).\"},"
+            "\"deviceEnumeration\":{\"implemented\":true,\"phase\":\"Phase 2\",\"notes\":\"Active native Windows physical disk and logical volume enumeration.\"},"
+            "\"rawDiskReadOnly\":{\"implemented\":true,\"phase\":\"Phase 2\",\"notes\":\"Active strictly read-only sector/byte reader for disks, volumes, and raw images.\"},"
             "\"ntfsRecovery\":{\"implemented\":false,\"phase\":\"Phase 3\",\"notes\":\"Scheduled for Phase 3 (NTFS Recovery).\"},"
             "\"deepSignatureCarving\":{\"implemented\":false,\"phase\":\"Phase 4\",\"notes\":\"Scheduled for Phase 4 (Deep Scanning).\"},"
             "\"fat32ExfatGptMbr\":{\"implemented\":false,\"phase\":\"Phase 5\",\"notes\":\"Scheduled for Phase 5 (Additional File Systems).\"},"
             "\"diskImaging\":{\"implemented\":false,\"phase\":\"Phase 6\",\"notes\":\"Scheduled for Phase 6 (Professional Features).\"}"
             "}";
+        return result;
+    }
+
+    if (request.command == "list_devices") {
+        salvus::device::DeviceManager devMgr;
+        const auto disksRes = devMgr.EnumeratePhysicalDisks();
+        if (!disksRes.ok()) {
+            result.response.ok = false;
+            result.response.errorCode = "ERR_DEVICE_ENUMERATION";
+            result.response.errorMessage = disksRes.error().message;
+            return result;
+        }
+
+        std::ostringstream payload;
+        payload << "{\"isElevated\":" << (salvus::device::IsProcessElevated() ? "true" : "false")
+                << ",\"devices\":[";
+        const auto& disks = disksRes.value();
+        for (std::size_t i = 0; i < disks.size(); ++i) {
+            const auto& d = disks[i];
+            if (i > 0) {
+                payload << ",";
+            }
+            payload << "{"
+                    << "\"physicalDiskIndex\":" << d.physicalDiskIndex << ","
+                    << "\"devicePath\":\"" << EscapeJsonString(d.devicePath) << "\","
+                    << "\"deviceName\":\"" << EscapeJsonString(d.deviceName) << "\","
+                    << "\"model\":\"" << EscapeJsonString(d.model) << "\","
+                    << "\"manufacturer\":\"" << EscapeJsonString(d.manufacturer) << "\","
+                    << "\"connectionType\":\"" << EscapeJsonString(d.connectionType) << "\","
+                    << "\"partitionLayout\":\"" << EscapeJsonString(d.partitionLayout) << "\","
+                    << "\"healthStatus\":\"" << EscapeJsonString(d.healthStatus) << "\","
+                    << "\"capacityBytes\":" << d.capacityBytes << ","
+                    << "\"sectorSizeBytes\":" << d.sectorSizeBytes << ","
+                    << "\"deviceType\":\"" << EscapeJsonString(salvus::device::StorageDeviceTypeToString(d.deviceType)) << "\","
+                    << "\"isPhysicalDisk\":" << (d.isPhysicalDisk ? "true" : "false") << ","
+                    << "\"isRemovable\":" << (d.isRemovable ? "true" : "false") << ","
+                    << "\"isSsd\":" << (d.isSsd ? "true" : "false") << ","
+                    << "\"rawAccessAvailable\":" << (d.rawAccessAvailable ? "true" : "false")
+                    << "}";
+        }
+        payload << "]}";
+        result.response.ok = true;
+        result.response.payloadJson = payload.str();
+        return result;
+    }
+
+    if (request.command == "list_volumes") {
+        salvus::device::DeviceManager devMgr;
+        const auto volsRes = devMgr.EnumerateVolumes();
+        if (!volsRes.ok()) {
+            result.response.ok = false;
+            result.response.errorCode = "ERR_VOLUME_ENUMERATION";
+            result.response.errorMessage = volsRes.error().message;
+            return result;
+        }
+
+        std::ostringstream payload;
+        payload << "{\"volumes\":[";
+        const auto& vols = volsRes.value();
+        for (std::size_t i = 0; i < vols.size(); ++i) {
+            const auto& v = vols[i];
+            if (i > 0) {
+                payload << ",";
+            }
+            payload << "{"
+                    << "\"volumePath\":\"" << EscapeJsonString(v.volumePath) << "\","
+                    << "\"driveLetter\":\"" << EscapeJsonString(v.driveLetter) << "\","
+                    << "\"label\":\"" << EscapeJsonString(v.label) << "\","
+                    << "\"fileSystem\":\"" << EscapeJsonString(v.fileSystem) << "\","
+                    << "\"totalBytes\":" << v.totalBytes << ","
+                    << "\"availableBytes\":" << v.availableBytes << ","
+                    << "\"physicalDiskIndex\":" << v.physicalDiskIndex << ","
+                    << "\"partitionOffsetBytes\":" << v.partitionOffsetBytes << ","
+                    << "\"partitionLengthBytes\":" << v.partitionLengthBytes << ","
+                    << "\"isRemovable\":" << (v.isRemovable ? "true" : "false")
+                    << "}";
+        }
+        payload << "]}";
+        result.response.ok = true;
+        result.response.payloadJson = payload.str();
         return result;
     }
 

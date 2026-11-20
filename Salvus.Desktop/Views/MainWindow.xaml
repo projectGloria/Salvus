@@ -66,9 +66,14 @@
 
             <Border Style="{StaticResource PanelBorderStyle}" Margin="6,0,6,0">
               <StackPanel>
-                <TextBlock Text="STORAGE DEVICES" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource TextMutedBrush}" />
-                <TextBlock Text="Pending Phase 2" FontSize="14" FontWeight="SemiBold" Foreground="{StaticResource StatusWarningBrush}" Margin="0,6,0,2" />
-                <TextBlock Text="Native physical disk and volume enumeration is scheduled for Phase 2."
+                <TextBlock Text="CONNECTED STORAGE" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource TextMutedBrush}" />
+                <TextBlock FontSize="14" FontWeight="SemiBold" Margin="0,6,0,2">
+                  <Run Text="{Binding PhysicalDiskCount, Mode=OneWay}" />
+                  <Run Text=" Physical Disk(s) · " />
+                  <Run Text="{Binding VolumeCount, Mode=OneWay}" />
+                  <Run Text=" Volume(s)" />
+                </TextBlock>
+                <TextBlock Text="{Binding StorageAccessSummary}"
                            Foreground="{StaticResource TextSecondaryBrush}"
                            FontSize="12"
                            TextWrapping="Wrap" />
@@ -136,39 +141,137 @@
 
     <!-- 2. Drives -->
     <DataTemplate DataType="{x:Type vm:DrivesViewModel}">
-      <Border Style="{StaticResource PanelBorderStyle}" VerticalAlignment="Top">
-        <StackPanel>
-          <TextBlock Text="{Binding StatusBadge}" FontWeight="SemiBold" Foreground="{StaticResource StatusWarningBrush}" />
-          <TextBlock Text="Storage Device &amp; Volume Enumeration" FontSize="16" FontWeight="SemiBold" Margin="0,6,0,8" />
-          <TextBlock Text="{Binding Description}" Foreground="{StaticResource TextSecondaryBrush}" TextWrapping="Wrap" />
-          <UniformGrid Columns="4" Margin="0,16,0,0">
-            <Border Background="{StaticResource BgWindowBrush}" BorderBrush="{StaticResource BorderSubtleBrush}" BorderThickness="1" CornerRadius="4" Padding="12" Margin="0,0,8,0">
-              <StackPanel>
-                <TextBlock Text="Physical Disks" FontWeight="SemiBold" />
-                <TextBlock Text="Internal &amp; external HDD/SSD" Foreground="{StaticResource TextMutedBrush}" FontSize="12" Margin="0,4,0,0" />
-              </StackPanel>
-            </Border>
-            <Border Background="{StaticResource BgWindowBrush}" BorderBrush="{StaticResource BorderSubtleBrush}" BorderThickness="1" CornerRadius="4" Padding="12" Margin="4,0,4,0">
-              <StackPanel>
-                <TextBlock Text="Partitions &amp; Volumes" FontWeight="SemiBold" />
-                <TextBlock Text="Logical volumes &amp; FS metadata" Foreground="{StaticResource TextMutedBrush}" FontSize="12" Margin="0,4,0,0" />
-              </StackPanel>
-            </Border>
-            <Border Background="{StaticResource BgWindowBrush}" BorderBrush="{StaticResource BorderSubtleBrush}" BorderThickness="1" CornerRadius="4" Padding="12" Margin="4,0,4,0">
-              <StackPanel>
-                <TextBlock Text="Removable Media" FontWeight="SemiBold" />
-                <TextBlock Text="USB flash, SD, microSD" Foreground="{StaticResource TextMutedBrush}" FontSize="12" Margin="0,4,0,0" />
-              </StackPanel>
-            </Border>
-            <Border Background="{StaticResource BgWindowBrush}" BorderBrush="{StaticResource BorderSubtleBrush}" BorderThickness="1" CornerRadius="4" Padding="12" Margin="8,0,0,0">
-              <StackPanel>
-                <TextBlock Text="Virtual Disk Images" FontWeight="SemiBold" />
-                <TextBlock Text="Raw images &amp; disposable test media" Foreground="{StaticResource TextMutedBrush}" FontSize="12" Margin="0,4,0,0" />
-              </StackPanel>
-            </Border>
-          </UniformGrid>
+      <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="0,0,0,16">
+          <!-- Status & Refresh Bar -->
+          <Border Style="{StaticResource PanelBorderStyle}" Margin="0,0,0,12">
+            <DockPanel>
+              <Button DockPanel.Dock="Right"
+                      Content="Refresh Devices"
+                      Command="{Binding RefreshCommand}"
+                      Style="{StaticResource SecondaryButtonStyle}"
+                      VerticalAlignment="Center" />
+              <TextBlock Text="{Binding StatusMessage}"
+                         Foreground="{StaticResource TextSecondaryBrush}"
+                         VerticalAlignment="Center"
+                         TextWrapping="Wrap"
+                         Margin="0,0,12,0" />
+            </DockPanel>
+          </Border>
+
+          <!-- Physical Disks Section -->
+          <Border Style="{StaticResource PanelBorderStyle}" Margin="0,0,0,12">
+            <StackPanel>
+              <TextBlock Text="Physical Storage Devices" FontSize="15" FontWeight="SemiBold" Margin="0,0,0,2" />
+              <TextBlock Text="Entire physical drives (never confused with logical partitions). Opened strictly read-only."
+                         Foreground="{StaticResource TextMutedBrush}" FontSize="12" Margin="0,0,0,10" />
+
+              <!-- Header Row -->
+              <Grid Margin="0,0,0,6">
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="220" />
+                  <ColumnDefinition Width="130" />
+                  <ColumnDefinition Width="110" />
+                  <ColumnDefinition Width="85" />
+                  <ColumnDefinition Width="105" />
+                  <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="DEVICE / MODEL" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource TextMutedBrush}" />
+                <TextBlock Grid.Column="1" Text="TYPE / BUS" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource TextMutedBrush}" />
+                <TextBlock Grid.Column="2" Text="CAPACITY" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource TextMutedBrush}" />
+                <TextBlock Grid.Column="3" Text="LAYOUT" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource TextMutedBrush}" />
+                <TextBlock Grid.Column="4" Text="SECTOR" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource TextMutedBrush}" />
+                <TextBlock Grid.Column="5" Text="ACCESS / PATH" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource TextMutedBrush}" />
+              </Grid>
+
+              <ItemsControl ItemsSource="{Binding PhysicalDisks}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate>
+                    <Border BorderBrush="{StaticResource BorderSubtleBrush}" BorderThickness="0,1,0,0" Padding="0,8">
+                      <Grid>
+                        <Grid.ColumnDefinitions>
+                          <ColumnDefinition Width="220" />
+                          <ColumnDefinition Width="130" />
+                          <ColumnDefinition Width="110" />
+                          <ColumnDefinition Width="85" />
+                          <ColumnDefinition Width="105" />
+                          <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0">
+                          <TextBlock Text="{Binding DeviceName}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                          <TextBlock Text="{Binding DevicePath}" FontSize="11" Foreground="{StaticResource TextMutedBrush}" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="1">
+                          <TextBlock Text="{Binding DeviceType}" />
+                          <TextBlock Text="{Binding ConnectionType}" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" />
+                        </StackPanel>
+                        <TextBlock Grid.Column="2" Text="{Binding CapacityFormatted}" VerticalAlignment="Center" />
+                        <TextBlock Grid.Column="3" Text="{Binding PartitionLayout}" VerticalAlignment="Center" Foreground="{StaticResource TextSecondaryBrush}" />
+                        <TextBlock Grid.Column="4" VerticalAlignment="Center" Foreground="{StaticResource TextSecondaryBrush}">
+                          <Run Text="{Binding SectorSizeBytes, Mode=OneWay}" />
+                          <Run Text=" B" />
+                        </TextBlock>
+                        <TextBlock Grid.Column="5" Text="{Binding HealthStatus}" VerticalAlignment="Center" TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource TextSecondaryBrush}" />
+                      </Grid>
+                    </Border>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+          </Border>
+
+          <!-- Logical Volumes & Partitions Section -->
+          <Border Style="{StaticResource PanelBorderStyle}">
+            <StackPanel>
+              <TextBlock Text="Logical Volumes &amp; Partitions" FontSize="15" FontWeight="SemiBold" Margin="0,0,0,2" />
+              <TextBlock Text="Mounted and unmounted file-system volumes mapped to their parent physical disks."
+                         Foreground="{StaticResource TextMutedBrush}" FontSize="12" Margin="0,0,0,10" />
+
+              <Grid Margin="0,0,0,6">
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="200" />
+                  <ColumnDefinition Width="110" />
+                  <ColumnDefinition Width="110" />
+                  <ColumnDefinition Width="110" />
+                  <ColumnDefinition Width="130" />
+                  <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="VOLUME" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource TextMutedBrush}" />
+                <TextBlock Grid.Column="1" Text="FILE SYSTEM" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource TextMutedBrush}" />
+                <TextBlock Grid.Column="2" Text="CAPACITY" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource TextMutedBrush}" />
+                <TextBlock Grid.Column="3" Text="AVAILABLE" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource TextMutedBrush}" />
+                <TextBlock Grid.Column="4" Text="PARENT DISK" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource TextMutedBrush}" />
+                <TextBlock Grid.Column="5" Text="VOLUME GUID PATH" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource TextMutedBrush}" />
+              </Grid>
+
+              <ItemsControl ItemsSource="{Binding Volumes}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate>
+                    <Border BorderBrush="{StaticResource BorderSubtleBrush}" BorderThickness="0,1,0,0" Padding="0,8">
+                      <Grid>
+                        <Grid.ColumnDefinitions>
+                          <ColumnDefinition Width="200" />
+                          <ColumnDefinition Width="110" />
+                          <ColumnDefinition Width="110" />
+                          <ColumnDefinition Width="110" />
+                          <ColumnDefinition Width="130" />
+                          <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="{Binding DisplayName}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Grid.Column="1" Text="{Binding FileSystem}" Foreground="{StaticResource TextSecondaryBrush}" />
+                        <TextBlock Grid.Column="2" Text="{Binding TotalFormatted}" />
+                        <TextBlock Grid.Column="3" Text="{Binding AvailableFormatted}" Foreground="{StaticResource TextSecondaryBrush}" />
+                        <TextBlock Grid.Column="4" Text="{Binding ParentDiskDisplay}" Foreground="{StaticResource TextSecondaryBrush}" />
+                        <TextBlock Grid.Column="5" Text="{Binding VolumePath}" FontSize="11" Foreground="{StaticResource TextMutedBrush}" TextTrimming="CharacterEllipsis" />
+                      </Grid>
+                    </Border>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+          </Border>
         </StackPanel>
-      </Border>
+      </ScrollViewer>
     </DataTemplate>
 
     <!-- 3. Recovery -->

@@ -46,6 +46,7 @@ public sealed class MainWindowViewModel : ViewModelBase
     public ICommand SelectSectionCommand { get; }
 
     public DashboardViewModel Dashboard { get; }
+    public DrivesViewModel Drives { get; }
     public RecoveryHistoryViewModel RecoveryHistory { get; }
     public SettingsViewModel Settings { get; }
     public AboutViewModel About { get; }
@@ -61,6 +62,7 @@ public sealed class MainWindowViewModel : ViewModelBase
         AboutViewModel about)
     {
         Dashboard = dashboard;
+        Drives = drives;
         RecoveryHistory = recoveryHistory;
         Settings = settings;
         About = about;
@@ -99,6 +101,7 @@ public sealed class MainWindowViewModel : ViewModelBase
     public async Task InitializeAsync()
     {
         await Dashboard.RefreshAsync();
+        await Drives.RefreshAsync();
         await RecoveryHistory.RefreshAsync();
         await Settings.LoadAsync();
         await About.RefreshEngineInfoAsync();

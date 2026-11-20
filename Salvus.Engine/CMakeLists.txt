@@ -74,7 +74,7 @@ if(MSVC)
 endif()
 
 if(WIN32)
-    target_link_libraries(salvus_engine_core PUBLIC advapi32)
+    target_link_libraries(salvus_engine_core PUBLIC advapi32 setupapi)
 endif()
 
 # Engine executable (separate process communicating via Named Pipes)

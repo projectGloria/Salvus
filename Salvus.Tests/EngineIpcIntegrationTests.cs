@@ -30,7 +30,21 @@ public sealed class EngineIpcIntegrationTests
         var caps = await client.GetCapabilitiesAsync();
         Assert.True(caps.IpcNamedPipes.Implemented);
         Assert.True(caps.DiskOffsetValidation.Implemented);
+        Assert.True(caps.DeviceEnumeration.Implemented);
+        Assert.True(caps.RawDiskReadOnly.Implemented);
         Assert.False(caps.NtfsRecovery.Implemented);
+
+        var devices = await client.ListDevicesAsync();
+        Assert.NotEmpty(devices.Devices);
+        Assert.All(devices.Devices, d =>
+        {
+            Assert.True(d.IsPhysicalDisk);
+            Assert.False(string.IsNullOrWhiteSpace(d.DevicePath));
+        });
+
+        var volumes = await client.ListVolumesAsync();
+        Assert.NotEmpty(volumes.Volumes);
+        Assert.Contains(volumes.Volumes, v => !string.IsNullOrWhiteSpace(v.DriveLetter));
 
         await client.ShutdownEngineAsync();
     }
