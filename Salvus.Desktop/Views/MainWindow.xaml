@@ -276,29 +276,155 @@
 
     <!-- 3. Recovery -->
     <DataTemplate DataType="{x:Type vm:RecoveryViewModel}">
-      <Border Style="{StaticResource PanelBorderStyle}" VerticalAlignment="Top">
-        <StackPanel>
-          <TextBlock Text="{Binding StatusBadge}" FontWeight="SemiBold" Foreground="{StaticResource StatusWarningBrush}" />
-          <TextBlock Text="Recovery Methods" FontSize="16" FontWeight="SemiBold" Margin="0,6,0,8" />
-          <TextBlock Text="{Binding Description}" Foreground="{StaticResource TextSecondaryBrush}" TextWrapping="Wrap" Margin="0,0,0,16" />
-          <StackPanel Orientation="Horizontal">
-            <Button Content="Start Quick Scan (Phase 3)" Style="{StaticResource PrimaryButtonStyle}" IsEnabled="False" Margin="0,0,8,0" />
-            <Button Content="Start Deep Scan (Phase 4)" Style="{StaticResource SecondaryButtonStyle}" IsEnabled="False" Margin="0,0,8,0" />
-            <Button Content="Partition Recovery (Phase 5)" Style="{StaticResource SecondaryButtonStyle}" IsEnabled="False" />
+      <StackPanel>
+        <Border Style="{StaticResource PanelBorderStyle}" Margin="0,0,0,12">
+          <StackPanel>
+            <TextBlock Text="Target NTFS Volume or Raw Disk Image (Strictly Read-Only)" FontSize="15" FontWeight="SemiBold" Margin="0,0,0,8" />
+            <Grid Margin="0,0,0,10">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+              </Grid.ColumnDefinitions>
+              <TextBox Grid.Column="0"
+                       Text="{Binding TargetPath, UpdateSourceTrigger=PropertyChanged}"
+                       Margin="0,0,8,0" />
+              <Button Grid.Column="1"
+                      Content="Browse Image..."
+                      Command="{Binding BrowseImageCommand}"
+                      Style="{StaticResource SecondaryButtonStyle}" />
+            </Grid>
+
+            <CheckBox Content="Include active (non-deleted) files in scan results"
+                      IsChecked="{Binding IncludeActiveFiles}"
+                      Foreground="{StaticResource TextSecondaryBrush}"
+                      Margin="0,0,0,14" />
+
+            <StackPanel Orientation="Horizontal">
+              <Button Content="Start NTFS Quick Scan"
+                      Command="{Binding StartNtfsQuickScanCommand}"
+                      Style="{StaticResource PrimaryButtonStyle}"
+                      Margin="0,0,8,0" />
+              <Button Content="Start Deep Scan (Phase 4)"
+                      Style="{StaticResource SecondaryButtonStyle}"
+                      IsEnabled="False"
+                      Margin="0,0,8,0" />
+              <Button Content="Partition Recovery (Phase 5)"
+                      Style="{StaticResource SecondaryButtonStyle}"
+                      IsEnabled="False" />
+            </StackPanel>
           </StackPanel>
-        </StackPanel>
-      </Border>
+        </Border>
+
+        <Border Style="{StaticResource PanelBorderStyle}">
+          <StackPanel>
+            <TextBlock Text="SCAN STATUS" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource TextMutedBrush}" />
+            <TextBlock Text="{Binding ScanStatusMessage}" Margin="0,6,0,0" TextWrapping="Wrap" />
+          </StackPanel>
+        </Border>
+      </StackPanel>
     </DataTemplate>
 
     <!-- 4. Scan Results -->
     <DataTemplate DataType="{x:Type vm:ScanResultsViewModel}">
-      <Border Style="{StaticResource PanelBorderStyle}" VerticalAlignment="Top">
-        <StackPanel>
-          <TextBlock Text="{Binding StatusBadge}" FontWeight="SemiBold" Foreground="{StaticResource StatusWarningBrush}" />
-          <TextBlock Text="Scan Results &amp; Safe File Preview" FontSize="16" FontWeight="SemiBold" Margin="0,6,0,8" />
-          <TextBlock Text="{Binding Description}" Foreground="{StaticResource TextSecondaryBrush}" TextWrapping="Wrap" />
-        </StackPanel>
-      </Border>
+      <Grid>
+        <Grid.RowDefinitions>
+          <RowDefinition Height="Auto" />
+          <RowDefinition Height="*" />
+          <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- Filter & Action Bar -->
+        <Border Grid.Row="0" Style="{StaticResource PanelBorderStyle}" Margin="0,0,0,12">
+          <Grid>
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*" />
+              <ColumnDefinition Width="160" />
+              <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <TextBox Grid.Column="0"
+                     Text="{Binding SearchQuery, UpdateSourceTrigger=PropertyChanged}"
+                     ToolTip="Filter by filename or reconstructed path"
+                     Margin="0,0,8,0" />
+
+            <ComboBox Grid.Column="1"
+                      ItemsSource="{Binding ConfidenceFilters}"
+                      SelectedItem="{Binding SelectedConfidenceFilter}"
+                      Margin="0,0,8,0" />
+
+            <Button Grid.Column="2"
+                    Content="Recover Selected File..."
+                    Command="{Binding RecoverSelectedCommand}"
+                    Style="{StaticResource PrimaryButtonStyle}" />
+          </Grid>
+        </Border>
+
+        <!-- Results List + Metadata Inspector -->
+        <Grid Grid.Row="1">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="2*" />
+            <ColumnDefinition Width="*" />
+          </Grid.ColumnDefinitions>
+
+          <Border Grid.Column="0" Style="{StaticResource PanelBorderStyle}" Margin="0,0,6,0">
+            <ListBox ItemsSource="{Binding FilteredFiles}"
+                     SelectedItem="{Binding SelectedFile, Mode=TwoWay}"
+                     Background="Transparent"
+                     BorderThickness="0">
+              <ListBox.ItemTemplate>
+                <DataTemplate>
+                  <Grid Margin="0,4">
+                    <Grid.ColumnDefinitions>
+                      <ColumnDefinition Width="220" />
+                      <ColumnDefinition Width="90" />
+                      <ColumnDefinition Width="105" />
+                      <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="{Binding FileName}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                    <TextBlock Grid.Column="1" Text="{Binding SizeFormatted}" Foreground="{StaticResource TextSecondaryBrush}" />
+                    <TextBlock Grid.Column="2" Text="{Binding Confidence}" FontWeight="SemiBold" Foreground="{StaticResource AccentBlueBrush}" />
+                    <TextBlock Grid.Column="3" Text="{Binding FullPath}" Foreground="{StaticResource TextMutedBrush}" TextTrimming="CharacterEllipsis" />
+                  </Grid>
+                </DataTemplate>
+              </ListBox.ItemTemplate>
+            </ListBox>
+          </Border>
+
+          <Border Grid.Column="1" Style="{StaticResource PanelBorderStyle}" Margin="6,0,0,0">
+            <StackPanel>
+              <TextBlock Text="FILE METADATA &amp; CONFIDENCE" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,10" />
+              <TextBlock Text="{Binding SelectedFile.FileName, FallbackValue='Select a file to inspect metadata'}" FontSize="15" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,0,0,8" />
+              <TextBlock Foreground="{StaticResource TextSecondaryBrush}" TextWrapping="Wrap" Margin="0,0,0,6">
+                <Run Text="Path: " Foreground="{StaticResource TextMutedBrush}" />
+                <Run Text="{Binding SelectedFile.FullPath, Mode=OneWay, FallbackValue='—'}" />
+              </TextBlock>
+              <TextBlock Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,4">
+                <Run Text="Size: " Foreground="{StaticResource TextMutedBrush}" />
+                <Run Text="{Binding SelectedFile.SizeFormatted, Mode=OneWay, FallbackValue='—'}" />
+              </TextBlock>
+              <TextBlock Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,4">
+                <Run Text="Storage: " Foreground="{StaticResource TextMutedBrush}" />
+                <Run Text="{Binding SelectedFile.StorageKind, Mode=OneWay, FallbackValue='—'}" />
+              </TextBlock>
+              <TextBlock Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,4">
+                <Run Text="Modified UTC: " Foreground="{StaticResource TextMutedBrush}" />
+                <Run Text="{Binding SelectedFile.ModifiedUtc, Mode=OneWay, FallbackValue='—'}" />
+              </TextBlock>
+              <TextBlock Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,8">
+                <Run Text="Alternate Streams: " Foreground="{StaticResource TextMutedBrush}" />
+                <Run Text="{Binding SelectedFile.AdsDisplay, Mode=OneWay, FallbackValue='—'}" />
+              </TextBlock>
+              <TextBlock Text="Confidence Explanation" FontWeight="SemiBold" Margin="0,4,0,4" />
+              <TextBlock Text="{Binding SelectedFile.ConfidenceReason, FallbackValue='—'}" Foreground="{StaticResource TextSecondaryBrush}" TextWrapping="Wrap" />
+            </StackPanel>
+          </Border>
+        </Grid>
+
+        <!-- Bottom Status -->
+        <Border Grid.Row="2" Style="{StaticResource PanelBorderStyle}" Margin="0,12,0,0" Padding="12,8">
+          <TextBlock Text="{Binding StatusMessage}" Foreground="{StaticResource TextSecondaryBrush}" TextWrapping="Wrap" />
+        </Border>
+      </Grid>
     </DataTemplate>
 
     <!-- 5. Disk Imaging -->

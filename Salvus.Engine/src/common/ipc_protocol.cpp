@@ -1,20 +1,41 @@
 #include "common/ipc_protocol.hpp"
 #include "common/version.hpp"
 #include "device/device_manager.hpp"
+#include "disk/disk_reader.hpp"
+#include "filesystem/filesystem_detector.hpp"
+#include "filesystem/ntfs_parser.hpp"
+#include "recovery/recovery_components.hpp"
 
+#include <atomic>
 #include <charconv>
 #include <chrono>
 #include <cctype>
 #include <ctime>
 #include <iomanip>
+#include <mutex>
 #include <optional>
 #include <sstream>
+#include <unordered_map>
 
 #ifdef _WIN32
 #include <windows.h>
 #endif
 
 namespace salvus::common {
+
+struct CommandDispatcher::SessionStore {
+    struct CachedNtfsSession {
+        std::wstring targetPath;
+        std::unordered_map<std::uint64_t, salvus::filesystem::NtfsFileEntry> entriesByRecord;
+    };
+
+    mutable std::mutex mutex;
+    mutable std::atomic<std::uint64_t> nextSessionSeq{1};
+    mutable std::unordered_map<std::string, CachedNtfsSession> sessions;
+};
+
+CommandDispatcher::CommandDispatcher() : sessions_(std::make_unique<SessionStore>()) {}
+CommandDispatcher::~CommandDispatcher() = default;
 
 namespace {
 
@@ -40,6 +61,25 @@ std::uint32_t GetCurrentProcessIdSafe() noexcept {
 #endif
 }
 
+std::wstring Utf8ToWide(std::string_view utf8) {
+    if (utf8.empty()) {
+        return {};
+    }
+#ifdef _WIN32
+    const int required = ::MultiByteToWideChar(
+        CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()), nullptr, 0);
+    if (required <= 0) {
+        return {};
+    }
+    std::wstring wide(static_cast<std::size_t>(required), L'\0');
+    ::MultiByteToWideChar(
+        CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()), wide.data(), required);
+    return wide;
+#else
+    return std::wstring(utf8.begin(), utf8.end());
+#endif
+}
+
 std::size_t SkipWhitespace(std::string_view s, std::size_t pos) noexcept {
     while (pos < s.size() && std::isspace(static_cast<unsigned char>(s[pos])) != 0) {
         ++pos;
@@ -47,7 +87,6 @@ std::size_t SkipWhitespace(std::string_view s, std::size_t pos) noexcept {
     return pos;
 }
 
-// Finds `"key"` followed by `:` at top-level JSON object scope and returns index after `:`.
 std::optional<std::size_t> FindTopLevelJsonValueStart(std::string_view json, std::string_view key) {
     std::size_t i = SkipWhitespace(json, 0);
     if (i >= json.size() || json[i] != '{') {
@@ -148,21 +187,64 @@ Result<std::string> ExtractJsonStringValue(std::string_view json, std::size_t st
     return Result<std::string>::Fail(StatusCode::ProtocolError, "Unterminated JSON string.");
 }
 
-Result<std::uint32_t> ExtractJsonUint32Value(std::string_view json, std::size_t startPos) {
+Result<std::uint64_t> ExtractJsonUint64Value(std::string_view json, std::size_t startPos) {
     if (startPos >= json.size() || std::isdigit(static_cast<unsigned char>(json[startPos])) == 0) {
-        return Result<std::uint32_t>::Fail(StatusCode::ProtocolError, "Expected unsigned integer JSON value.");
+        return Result<std::uint64_t>::Fail(StatusCode::ProtocolError, "Expected unsigned integer JSON value.");
     }
     std::size_t endPos = startPos;
     while (endPos < json.size() && std::isdigit(static_cast<unsigned char>(json[endPos])) != 0) {
         ++endPos;
     }
 
-    std::uint32_t value = 0;
+    std::uint64_t value = 0;
     const auto [ptr, ec] = std::from_chars(json.data() + startPos, json.data() + endPos, value);
     if (ec != std::errc{} || ptr != json.data() + endPos) {
-        return Result<std::uint32_t>::Fail(StatusCode::ProtocolError, "Invalid uint32 JSON value.");
+        return Result<std::uint64_t>::Fail(StatusCode::ProtocolError, "Invalid uint64 JSON value.");
     }
-    return Result<std::uint32_t>::Ok(value);
+    return Result<std::uint64_t>::Ok(value);
+}
+
+std::optional<bool> ExtractJsonBoolValue(std::string_view json, std::size_t startPos) {
+    if (json.substr(startPos, 4U) == "true") {
+        return true;
+    }
+    if (json.substr(startPos, 5U) == "false") {
+        return false;
+    }
+    return std::nullopt;
+}
+
+std::string ExtractJsonObjectSlice(std::string_view json, std::size_t startPos) {
+    if (startPos >= json.size() || json[startPos] != '{') {
+        return "{}";
+    }
+    int depth = 0;
+    bool inString = false;
+    bool escaped = false;
+    for (std::size_t i = startPos; i < json.size(); ++i) {
+        const char ch = json[i];
+        if (inString) {
+            if (escaped) {
+                escaped = false;
+            } else if (ch == '\\') {
+                escaped = true;
+            } else if (ch == '"') {
+                inString = false;
+            }
+            continue;
+        }
+        if (ch == '"') {
+            inString = true;
+        } else if (ch == '{') {
+            ++depth;
+        } else if (ch == '}') {
+            --depth;
+            if (depth == 0) {
+                return std::string(json.substr(startPos, i - startPos + 1U));
+            }
+        }
+    }
+    return "{}";
 }
 
 } // namespace
@@ -264,7 +346,7 @@ Result<IpcRequest> ParseIpcRequest(std::string_view json) {
         return Result<IpcRequest>::Fail(cmdRes.error().code, cmdRes.error().message);
     }
 
-    auto protoRes = ExtractJsonUint32Value(json, *protoPos);
+    auto protoRes = ExtractJsonUint64Value(json, *protoPos);
     if (!protoRes.ok()) {
         return Result<IpcRequest>::Fail(protoRes.error().code, protoRes.error().message);
     }
@@ -272,8 +354,10 @@ Result<IpcRequest> ParseIpcRequest(std::string_view json) {
     IpcRequest req;
     req.id = std::move(idRes.value());
     req.command = std::move(cmdRes.value());
-    req.protocolVersion = protoRes.value();
-    req.payloadJson = "{}";
+    req.protocolVersion = static_cast<std::uint32_t>(protoRes.value());
+
+    const auto payloadPos = FindTopLevelJsonValueStart(json, "payload");
+    req.payloadJson = payloadPos ? ExtractJsonObjectSlice(json, *payloadPos) : "{}";
     return Result<IpcRequest>::Ok(std::move(req));
 }
 
@@ -339,7 +423,7 @@ DispatchResult CommandDispatcher::Dispatch(const IpcRequest& request) const {
             "\"diskOffsetValidation\":{\"implemented\":true,\"phase\":\"Phase 1\",\"notes\":\"Active bounds, overflow, and sector alignment validation.\"},"
             "\"deviceEnumeration\":{\"implemented\":true,\"phase\":\"Phase 2\",\"notes\":\"Active native Windows physical disk and logical volume enumeration.\"},"
             "\"rawDiskReadOnly\":{\"implemented\":true,\"phase\":\"Phase 2\",\"notes\":\"Active strictly read-only sector/byte reader for disks, volumes, and raw images.\"},"
-            "\"ntfsRecovery\":{\"implemented\":false,\"phase\":\"Phase 3\",\"notes\":\"Scheduled for Phase 3 (NTFS Recovery).\"},"
+            "\"ntfsRecovery\":{\"implemented\":true,\"phase\":\"Phase 3\",\"notes\":\"Active NTFS boot sector, MFT parsing, deleted file detection, fragmented extent reconstruction, and separate-destination recovery.\"},"
             "\"deepSignatureCarving\":{\"implemented\":false,\"phase\":\"Phase 4\",\"notes\":\"Scheduled for Phase 4 (Deep Scanning).\"},"
             "\"fat32ExfatGptMbr\":{\"implemented\":false,\"phase\":\"Phase 5\",\"notes\":\"Scheduled for Phase 5 (Additional File Systems).\"},"
             "\"diskImaging\":{\"implemented\":false,\"phase\":\"Phase 6\",\"notes\":\"Scheduled for Phase 6 (Professional Features).\"}"
@@ -422,6 +506,180 @@ DispatchResult CommandDispatcher::Dispatch(const IpcRequest& request) const {
                     << "}";
         }
         payload << "]}";
+        result.response.ok = true;
+        result.response.payloadJson = payload.str();
+        return result;
+    }
+
+    if (request.command == "quick_scan_ntfs") {
+        const auto targetPos = FindTopLevelJsonValueStart(request.payloadJson, "targetPath");
+        if (!targetPos) {
+            result.response.ok = false;
+            result.response.errorCode = "ERR_INVALID_ARGUMENT";
+            result.response.errorMessage = "quick_scan_ntfs requires payload.targetPath.";
+            return result;
+        }
+        const auto targetRes = ExtractJsonStringValue(request.payloadJson, *targetPos);
+        if (!targetRes.ok() || targetRes.value().empty()) {
+            result.response.ok = false;
+            result.response.errorCode = "ERR_INVALID_ARGUMENT";
+            result.response.errorMessage = "Invalid payload.targetPath.";
+            return result;
+        }
+
+        salvus::filesystem::NtfsScanOptions scanOpts{};
+        if (const auto incPos = FindTopLevelJsonValueStart(request.payloadJson, "includeActive")) {
+            if (const auto incBool = ExtractJsonBoolValue(request.payloadJson, *incPos)) {
+                scanOpts.includeActiveFiles = *incBool;
+            }
+        }
+        if (const auto maxPos = FindTopLevelJsonValueStart(request.payloadJson, "maxRecords")) {
+            const auto maxRes = ExtractJsonUint64Value(request.payloadJson, *maxPos);
+            if (maxRes.ok() && maxRes.value() > 0ULL) {
+                scanOpts.maxMftRecords = maxRes.value();
+            }
+        }
+
+        const std::wstring wideTarget = Utf8ToWide(targetRes.value());
+        salvus::disk::DiskReader reader;
+        const auto openRes = reader.OpenReadOnly(wideTarget);
+        if (!openRes.ok()) {
+            result.response.ok = false;
+            result.response.errorCode =
+                openRes.error().code == StatusCode::AccessDenied ? "ERR_ACCESS_DENIED" : "ERR_OPEN_TARGET";
+            result.response.errorMessage = openRes.error().message;
+            return result;
+        }
+
+        salvus::filesystem::NTFSParser parser;
+        const auto scanRes = parser.ScanVolume(reader, scanOpts);
+        if (!scanRes.ok()) {
+            result.response.ok = false;
+            result.response.errorCode = "ERR_NTFS_SCAN";
+            result.response.errorMessage = scanRes.error().message;
+            return result;
+        }
+
+        const std::uint64_t seq = sessions_->nextSessionSeq.fetch_add(1ULL);
+        const std::string sessionId = "ntfs-" + std::to_string(GetCurrentProcessIdSafe()) + "-" + std::to_string(seq);
+
+        SessionStore::CachedNtfsSession cached{};
+        cached.targetPath = wideTarget;
+
+        std::ostringstream payload;
+        payload << "{"
+                << "\"sessionId\":\"" << EscapeJsonString(sessionId) << "\","
+                << "\"fileSystem\":\"NTFS\","
+                << "\"mftRecordsScanned\":" << scanRes.value().mftRecordsScanned << ","
+                << "\"clusterSizeBytes\":" << scanRes.value().bootSector.clusterSizeBytes << ","
+                << "\"files\":[";
+
+        const auto& entries = scanRes.value().entries;
+        for (std::size_t i = 0; i < entries.size(); ++i) {
+            const auto& e = entries[i];
+            if (i > 0) {
+                payload << ",";
+            }
+            payload << "{"
+                    << "\"recordNumber\":" << e.recordNumber << ","
+                    << "\"fileName\":\"" << EscapeJsonString(e.fileName) << "\","
+                    << "\"fullPath\":\"" << EscapeJsonString(e.fullPath) << "\","
+                    << "\"sizeBytes\":" << e.fileSizeBytes << ","
+                    << "\"isDeleted\":" << (e.isDeleted ? "true" : "false") << ","
+                    << "\"isResident\":" << (e.isResident ? "true" : "false") << ","
+                    << "\"extentCount\":" << e.dataExtents.size() << ","
+                    << "\"createdUtc\":\"" << EscapeJsonString(e.createdUtc) << "\","
+                    << "\"modifiedUtc\":\"" << EscapeJsonString(e.modifiedUtc) << "\","
+                    << "\"confidence\":\"" << EscapeJsonString(salvus::filesystem::RecoveryConfidenceToString(e.confidence)) << "\","
+                    << "\"confidenceReason\":\"" << EscapeJsonString(e.confidenceReason) << "\","
+                    << "\"alternateDataStreams\":[";
+            for (std::size_t a = 0; a < e.alternateDataStreams.size(); ++a) {
+                if (a > 0) {
+                    payload << ",";
+                }
+                payload << "\"" << EscapeJsonString(e.alternateDataStreams[a]) << "\"";
+            }
+            payload << "]}";
+
+            cached.entriesByRecord.emplace(e.recordNumber, e);
+        }
+        payload << "]}";
+
+        {
+            std::lock_guard<std::mutex> lock(sessions_->mutex);
+            sessions_->sessions[sessionId] = std::move(cached);
+        }
+
+        result.response.ok = true;
+        result.response.payloadJson = payload.str();
+        return result;
+    }
+
+    if (request.command == "recover_file") {
+        const auto sessPos = FindTopLevelJsonValueStart(request.payloadJson, "sessionId");
+        const auto recPos = FindTopLevelJsonValueStart(request.payloadJson, "recordNumber");
+        const auto destPos = FindTopLevelJsonValueStart(request.payloadJson, "destinationPath");
+
+        if (!sessPos || !recPos || !destPos) {
+            result.response.ok = false;
+            result.response.errorCode = "ERR_INVALID_ARGUMENT";
+            result.response.errorMessage = "recover_file requires sessionId, recordNumber, and destinationPath.";
+            return result;
+        }
+
+        const auto sessRes = ExtractJsonStringValue(request.payloadJson, *sessPos);
+        const auto recRes = ExtractJsonUint64Value(request.payloadJson, *recPos);
+        const auto destRes = ExtractJsonStringValue(request.payloadJson, *destPos);
+        if (!sessRes.ok() || !recRes.ok() || !destRes.ok() || destRes.value().empty()) {
+            result.response.ok = false;
+            result.response.errorCode = "ERR_INVALID_ARGUMENT";
+            result.response.errorMessage = "Malformed recover_file arguments.";
+            return result;
+        }
+
+        std::wstring sourceTarget;
+        salvus::filesystem::NtfsFileEntry fileEntry{};
+        {
+            std::lock_guard<std::mutex> lock(sessions_->mutex);
+            const auto sIt = sessions_->sessions.find(sessRes.value());
+            if (sIt == sessions_->sessions.end()) {
+                result.response.ok = false;
+                result.response.errorCode = "ERR_SESSION_NOT_FOUND";
+                result.response.errorMessage = "Scan session not found in engine memory.";
+                return result;
+            }
+            const auto eIt = sIt->second.entriesByRecord.find(recRes.value());
+            if (eIt == sIt->second.entriesByRecord.end()) {
+                result.response.ok = false;
+                result.response.errorCode = "ERR_RECORD_NOT_FOUND";
+                result.response.errorMessage = "File record not found in scan session.";
+                return result;
+            }
+            sourceTarget = sIt->second.targetPath;
+            fileEntry = eIt->second;
+        }
+
+        salvus::recovery::RecoveryWriter writer;
+        const auto writeRes = writer.WriteRecoveredFile(
+            sourceTarget,
+            Utf8ToWide(destRes.value()),
+            fileEntry.isResident,
+            fileEntry.residentData,
+            fileEntry.dataExtents,
+            fileEntry.fileSizeBytes);
+        if (!writeRes.ok()) {
+            result.response.ok = false;
+            result.response.errorCode = "ERR_RECOVERY_WRITE";
+            result.response.errorMessage = writeRes.error().message;
+            return result;
+        }
+
+        std::ostringstream payload;
+        payload << "{"
+                << "\"bytesWritten\":" << writeRes.value().bytesWritten << ","
+                << "\"destinationPath\":\"" << EscapeJsonString(destRes.value()) << "\","
+                << "\"fileName\":\"" << EscapeJsonString(fileEntry.fileName) << "\""
+                << "}";
         result.response.ok = true;
         result.response.payloadJson = payload.str();
         return result;

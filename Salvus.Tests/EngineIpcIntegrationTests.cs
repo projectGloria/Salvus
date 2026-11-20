@@ -32,7 +32,8 @@ public sealed class EngineIpcIntegrationTests
         Assert.True(caps.DiskOffsetValidation.Implemented);
         Assert.True(caps.DeviceEnumeration.Implemented);
         Assert.True(caps.RawDiskReadOnly.Implemented);
-        Assert.False(caps.NtfsRecovery.Implemented);
+        Assert.True(caps.NtfsRecovery.Implemented);
+        Assert.False(caps.DeepSignatureCarving.Implemented);
 
         var devices = await client.ListDevicesAsync();
         Assert.NotEmpty(devices.Devices);

@@ -1,8 +1,10 @@
 #pragma once
 
 #include "common/result.hpp"
+#include "disk/disk_reader.hpp"
 
 #include <cstdint>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -11,20 +13,39 @@ namespace salvus::recovery {
 struct FileExtent {
     std::uint64_t diskOffsetBytes = 0;
     std::uint64_t lengthBytes = 0;
+    bool isSparse = false;
+};
+
+struct RecoveryWriteResult {
+    std::uint64_t bytesWritten = 0;
+    std::wstring destinationPath;
 };
 
 class FileReconstructor {
 public:
-    // Phase 3+: Reconstructs file byte streams from validated extents.
-    [[nodiscard]] common::Result<void> Reconstruct(const std::vector<FileExtent>& extents) const;
+    // Validates extents against disk capacity and reconstructs bytes into an output buffer (bounded).
+    [[nodiscard]] common::Result<std::vector<std::uint8_t>> ReconstructToBuffer(
+        const disk::DiskReader& reader,
+        const std::vector<FileExtent>& extents,
+        std::uint64_t fileSizeBytes,
+        std::uint64_t maxBufferBytes = 64ULL * 1024ULL * 1024ULL) const;
 };
 
 class RecoveryWriter {
 public:
-    // Phase 3+: Writes recovered files strictly to a separate destination volume.
-    [[nodiscard]] common::Result<void> WriteRecoveredFile(
-        const std::wstring& sourceDevicePath,
-        const std::wstring& destinationFilePath) const;
+    // Enforces that destination path is not on the same source volume/device or equal to the source image.
+    [[nodiscard]] static common::Result<void> ValidateSeparateDestination(
+        const std::wstring& sourceDeviceOrImagePath,
+        const std::wstring& destinationFilePath);
+
+    // Streams recovered resident or non-resident file contents to a validated separate destination path.
+    [[nodiscard]] common::Result<RecoveryWriteResult> WriteRecoveredFile(
+        const std::wstring& sourceDeviceOrImagePath,
+        const std::wstring& destinationFilePath,
+        bool isResident,
+        std::span<const std::uint8_t> residentData,
+        const std::vector<FileExtent>& extents,
+        std::uint64_t fileSizeBytes) const;
 };
 
 class IntegrityChecker {

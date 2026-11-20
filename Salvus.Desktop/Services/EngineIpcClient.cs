@@ -18,6 +18,8 @@ public interface IEngineIpcClient : IAsyncDisposable
     Task<EngineCapabilities> GetCapabilitiesAsync(CancellationToken cancellationToken = default);
     Task<DeviceListResult> ListDevicesAsync(CancellationToken cancellationToken = default);
     Task<VolumeListResult> ListVolumesAsync(CancellationToken cancellationToken = default);
+    Task<NtfsQuickScanResult> QuickScanNtfsAsync(string targetPath, bool includeActive = false, CancellationToken cancellationToken = default);
+    Task<RecoverFileResult> RecoverFileAsync(string sessionId, ulong recordNumber, string destinationPath, CancellationToken cancellationToken = default);
     Task ShutdownEngineAsync(CancellationToken cancellationToken = default);
 }
 
@@ -129,6 +131,20 @@ public sealed class EngineIpcClient : IEngineIpcClient
     public Task<VolumeListResult> ListVolumesAsync(CancellationToken cancellationToken = default) =>
         SendCommandAsync<VolumeListResult>("list_volumes", cancellationToken);
 
+    public Task<NtfsQuickScanResult> QuickScanNtfsAsync(
+        string targetPath, bool includeActive = false, CancellationToken cancellationToken = default) =>
+        SendCommandAsync<NtfsQuickScanResult>(
+            "quick_scan_ntfs",
+            JsonSerializer.SerializeToElement(new { targetPath, includeActive }, IpcConstants.JsonOptions),
+            cancellationToken);
+
+    public Task<RecoverFileResult> RecoverFileAsync(
+        string sessionId, ulong recordNumber, string destinationPath, CancellationToken cancellationToken = default) =>
+        SendCommandAsync<RecoverFileResult>(
+            "recover_file",
+            JsonSerializer.SerializeToElement(new { sessionId, recordNumber, destinationPath }, IpcConstants.JsonOptions),
+            cancellationToken);
+
     public async Task ShutdownEngineAsync(CancellationToken cancellationToken = default)
     {
         if (!IsConnected)
@@ -146,7 +162,11 @@ public sealed class EngineIpcClient : IEngineIpcClient
         }
     }
 
-    private async Task<TPayload> SendCommandAsync<TPayload>(string command, CancellationToken cancellationToken)
+    private Task<TPayload> SendCommandAsync<TPayload>(string command, CancellationToken cancellationToken) =>
+        SendCommandAsync<TPayload>(command, null, cancellationToken);
+
+    private async Task<TPayload> SendCommandAsync<TPayload>(
+        string command, JsonElement? payloadElement, CancellationToken cancellationToken)
     {
         await _ioLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
@@ -157,7 +177,7 @@ public sealed class EngineIpcClient : IEngineIpcClient
             }
 
             string reqId = Guid.NewGuid().ToString("N");
-            var request = new IpcRequest(reqId, IpcConstants.ProtocolVersion, command);
+            var request = new IpcRequest(reqId, IpcConstants.ProtocolVersion, command, payloadElement);
             await IpcFraming.WriteMessageAsync(_pipe, request, cancellationToken).ConfigureAwait(false);
 
             IpcResponse response = await IpcFraming.ReadMessageAsync<IpcResponse>(_pipe, cancellationToken)

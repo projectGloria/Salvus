@@ -3,6 +3,7 @@
 #include "common/result.hpp"
 
 #include <cstdint>
+#include <memory>
 #include <span>
 #include <string>
 #include <string_view>
@@ -40,10 +41,20 @@ std::string EscapeJsonString(std::string_view input);
 Result<IpcRequest> ParseIpcRequest(std::string_view json);
 std::string SerializeIpcResponse(const IpcResponse& response);
 
-// Dispatches Phase 1 engine IPC commands
+// Dispatches engine IPC commands and manages in-memory scan session cache
 class CommandDispatcher {
 public:
+    CommandDispatcher();
+    ~CommandDispatcher();
+
+    CommandDispatcher(const CommandDispatcher&) = delete;
+    CommandDispatcher& operator=(const CommandDispatcher&) = delete;
+
     [[nodiscard]] DispatchResult Dispatch(const IpcRequest& request) const;
+
+private:
+    struct SessionStore;
+    std::unique_ptr<SessionStore> sessions_;
 };
 
 } // namespace salvus::common

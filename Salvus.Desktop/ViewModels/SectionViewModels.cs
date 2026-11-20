@@ -1,5 +1,7 @@
 using System.Collections.ObjectModel;
+using System.IO;
 using System.Windows.Input;
+using Microsoft.Win32;
 using Salvus.Data;
 using Salvus.Desktop.Services;
 using Salvus.Shared.Contracts;
@@ -248,16 +250,241 @@ public sealed class DrivesViewModel : ViewModelBase
 
 public sealed class RecoveryViewModel : ViewModelBase
 {
-    public string StatusBadge => "Scheduled for Phases 3–5";
-    public string Description =>
-        "Quick Scan (NTFS MFT metadata), Deep Scan (signature-based carving), and non-destructive Partition Recovery (MBR/GPT) require Phases 2–5 in Salvus.Engine. Scan controls remain disabled until real engine scanning is implemented.";
+    private readonly IEngineIpcClient _ipcClient;
+    private readonly ISalvusDatabase _database;
+    private readonly ScanResultsViewModel _scanResults;
+
+    private string _targetPath = string.Empty;
+    private bool _includeActiveFiles;
+    private bool _isScanning;
+    private string _scanStatusMessage = "Select an NTFS volume path (e.g. \\\\.\\E:) or browse for a raw NTFS disk image (.raw / .img).";
+
+    public string TargetPath
+    {
+        get => _targetPath;
+        set => SetProperty(ref _targetPath, value);
+    }
+
+    public bool IncludeActiveFiles
+    {
+        get => _includeActiveFiles;
+        set => SetProperty(ref _includeActiveFiles, value);
+    }
+
+    public bool IsScanning
+    {
+        get => _isScanning;
+        private set => SetProperty(ref _isScanning, value);
+    }
+
+    public string ScanStatusMessage
+    {
+        get => _scanStatusMessage;
+        private set => SetProperty(ref _scanStatusMessage, value);
+    }
+
+    public ICommand BrowseImageCommand { get; }
+    public ICommand StartNtfsQuickScanCommand { get; }
+
+    public RecoveryViewModel(
+        IEngineIpcClient ipcClient,
+        ISalvusDatabase database,
+        ScanResultsViewModel scanResults)
+    {
+        _ipcClient = ipcClient;
+        _database = database;
+        _scanResults = scanResults;
+
+        BrowseImageCommand = new RelayCommand(_ =>
+        {
+            var dlg = new OpenFileDialog
+            {
+                Title = "Select Raw NTFS Disk Image (Read-Only)",
+                Filter = "Disk Images (*.raw;*.img;*.dd)|*.raw;*.img;*.dd|All Files (*.*)|*.*"
+            };
+            if (dlg.ShowDialog() == true)
+            {
+                TargetPath = dlg.FileName;
+            }
+        });
+
+        StartNtfsQuickScanCommand = new AsyncRelayCommand(StartNtfsQuickScanAsync);
+    }
+
+    public async Task StartNtfsQuickScanAsync()
+    {
+        if (string.IsNullOrWhiteSpace(TargetPath))
+        {
+            ScanStatusMessage = "Specify a target NTFS volume path or disk image file first.";
+            return;
+        }
+
+        IsScanning = true;
+        ScanStatusMessage = "Opening target read-only and scanning NTFS Master File Table ($MFT)...";
+        DateTimeOffset startedUtc = DateTimeOffset.UtcNow;
+
+        try
+        {
+            if (!_ipcClient.IsConnected)
+            {
+                bool connected = await _ipcClient.EnsureEngineStartedAndConnectedAsync();
+                if (!connected)
+                {
+                    ScanStatusMessage = "Salvus.Engine is offline.";
+                    return;
+                }
+            }
+
+            NtfsQuickScanResult scanResult = await _ipcClient.QuickScanNtfsAsync(TargetPath.Trim(), IncludeActiveFiles);
+            _scanResults.LoadScanResult(TargetPath.Trim(), scanResult);
+
+            await _database.UpsertScanSessionAsync(new ScanSessionRecord(
+                SessionId: scanResult.SessionId,
+                TargetDevicePath: TargetPath.Trim(),
+                TargetDisplayName: Path.GetFileName(TargetPath.Trim()) is { Length: > 0 } name ? name : TargetPath.Trim(),
+                Mode: ScanMode.Quick,
+                Status: "Completed",
+                StartedUtc: startedUtc,
+                CompletedUtc: DateTimeOffset.UtcNow,
+                DiscoveredFileCount: scanResult.Files.Count));
+
+            ScanStatusMessage =
+                $"NTFS Quick Scan complete: scanned {scanResult.MftRecordsScanned} MFT record(s), discovered {scanResult.Files.Count} file(s). Open Scan Results to inspect and recover.";
+        }
+        catch (Exception ex)
+        {
+            ScanStatusMessage = $"Scan failed: {ex.Message}";
+        }
+        finally
+        {
+            IsScanning = false;
+        }
+    }
 }
 
 public sealed class ScanResultsViewModel : ViewModelBase
 {
-    public string StatusBadge => "Available in Phase 3";
-    public string Description =>
-        "Discovered file trees, confidence classifications (High, Medium, Low, Damaged, Unrecoverable), metadata inspection, and safe non-executing previews will populate here from real scan sessions.";
+    private readonly IEngineIpcClient _ipcClient;
+    private readonly List<DiscoveredFileDto> _allFiles = new();
+
+    private string _sessionId = string.Empty;
+    private string _sourceTargetPath = string.Empty;
+    private string _searchQuery = string.Empty;
+    private string _selectedConfidenceFilter = "All";
+    private DiscoveredFileDto? _selectedFile;
+    private string _statusMessage = "Run an NTFS Quick Scan from the Recovery section to inspect discovered files.";
+
+    public ObservableCollection<DiscoveredFileDto> FilteredFiles { get; } = new();
+    public IReadOnlyList<string> ConfidenceFilters { get; } = ["All", "High", "Medium", "Damaged", "Unrecoverable"];
+
+    public string SearchQuery
+    {
+        get => _searchQuery;
+        set
+        {
+            if (SetProperty(ref _searchQuery, value))
+            {
+                ApplyFilters();
+            }
+        }
+    }
+
+    public string SelectedConfidenceFilter
+    {
+        get => _selectedConfidenceFilter;
+        set
+        {
+            if (SetProperty(ref _selectedConfidenceFilter, value))
+            {
+                ApplyFilters();
+            }
+        }
+    }
+
+    public DiscoveredFileDto? SelectedFile
+    {
+        get => _selectedFile;
+        set
+        {
+            if (SetProperty(ref _selectedFile, value))
+            {
+                ((AsyncRelayCommand)RecoverSelectedCommand).RaiseCanExecuteChanged();
+            }
+        }
+    }
+
+    public string StatusMessage
+    {
+        get => _statusMessage;
+        private set => SetProperty(ref _statusMessage, value);
+    }
+
+    public ICommand RecoverSelectedCommand { get; }
+
+    public ScanResultsViewModel(IEngineIpcClient ipcClient)
+    {
+        _ipcClient = ipcClient;
+        RecoverSelectedCommand = new AsyncRelayCommand(RecoverSelectedAsync, () => SelectedFile is not null);
+    }
+
+    public void LoadScanResult(string sourceTargetPath, NtfsQuickScanResult result)
+    {
+        _sessionId = result.SessionId;
+        _sourceTargetPath = sourceTargetPath;
+        _allFiles.Clear();
+        _allFiles.AddRange(result.Files);
+        ApplyFilters();
+        StatusMessage = $"Session {result.SessionId}: {_allFiles.Count} file(s) discovered from {sourceTargetPath}.";
+    }
+
+    private void ApplyFilters()
+    {
+        FilteredFiles.Clear();
+        foreach (var file in _allFiles)
+        {
+            if (!string.Equals(SelectedConfidenceFilter, "All", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(file.Confidence, SelectedConfidenceFilter, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+            if (!string.IsNullOrWhiteSpace(SearchQuery) &&
+                !file.FileName.Contains(SearchQuery, StringComparison.OrdinalIgnoreCase) &&
+                !file.FullPath.Contains(SearchQuery, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+            FilteredFiles.Add(file);
+        }
+    }
+
+    private async Task RecoverSelectedAsync()
+    {
+        if (SelectedFile is null || string.IsNullOrWhiteSpace(_sessionId))
+        {
+            return;
+        }
+
+        var dlg = new SaveFileDialog
+        {
+            Title = "Choose Separate Recovery Destination",
+            FileName = SelectedFile.FileName
+        };
+        if (dlg.ShowDialog() != true)
+        {
+            return;
+        }
+
+        try
+        {
+            RecoverFileResult res = await _ipcClient.RecoverFileAsync(
+                _sessionId, SelectedFile.RecordNumber, dlg.FileName);
+            StatusMessage = $"Recovered '{res.FileName}' ({ByteSizeFormatter.Format(res.BytesWritten)}) to {res.DestinationPath}.";
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Recovery failed: {ex.Message}";
+        }
+    }
 }
 
 public sealed class DiskImagingViewModel : ViewModelBase
@@ -358,7 +585,7 @@ public sealed class AboutViewModel : ViewModelBase
 
     public string ProductName => "Salvus";
     public string Tagline => "Recover what matters.";
-    public string Version => "0.2.0 — Phase 2 (Storage Access)";
+    public string Version => "0.3.0 — Phase 3 (NTFS Recovery)";
     public string License => "GNU General Public License v3.0 or later (GPL-3.0-or-later)";
     public string Platform => "Windows 10 / Windows 11 (x64)";
 

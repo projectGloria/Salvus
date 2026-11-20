@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added — Phase 3: NTFS Recovery
+- Implemented `FileSystemDetector` for NTFS, FAT32, exFAT, experimental ReFS, and RAW boot sector identification.
+- Implemented `NTFSParser` with boot sector validation, MFT record USA fixup verification, `$STANDARD_INFORMATION`, `$FILE_NAME` (UTF-16LE + Win32 namespace preference), `$DATA` (resident, non-resident, fragmented signed delta-LCN runs, sparse runs, and Alternate Data Streams), deleted file detection, cycle-safe directory path reconstruction, and transparent confidence classification.
+- Implemented `FileReconstructor` and `RecoveryWriter` with bounded streaming I/O and strict separate-destination validation (blocks overwriting source image or writing to the same source volume/physical disk).
+- Added `quick_scan_ntfs` and `recover_file` Named Pipe IPC commands in `Salvus.Engine` and `EngineIpcClient`.
+- Wired `Salvus.Desktop` Recovery and Scan Results views for live NTFS Quick Scan, SQLite session persistence, filename/confidence filtering, metadata inspection, and separate-destination file recovery.
+- Added synthetic NTFS GoogleTest suite covering resident recovery, 2-run fragmented negative-delta-LCN recovery, ADS detection, corrupted USA handling, and separate-destination rejection.
+
 ### Added — Phase 2: Storage Access
 - Implemented native Windows physical disk enumeration (`DeviceManager::EnumeratePhysicalDisks`) via SetupAPI (`GUID_DEVINTERFACE_DISK`) and `IOCTL_STORAGE_QUERY_PROPERTY` / `IOCTL_DISK_GET_DRIVE_GEOMETRY_EX` / `IOCTL_DISK_GET_DRIVE_LAYOUT_EX`.
 - Implemented native Windows logical volume enumeration (`DeviceManager::EnumerateVolumes`) mapped to parent physical disk indices via `IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS`.

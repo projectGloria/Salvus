@@ -80,6 +80,39 @@ public sealed record DeviceListResult(
 public sealed record VolumeListResult(
     IReadOnlyList<VolumeDto> Volumes);
 
+public sealed record DiscoveredFileDto(
+    ulong RecordNumber,
+    string FileName,
+    string FullPath,
+    ulong SizeBytes,
+    bool IsDeleted,
+    bool IsResident,
+    int ExtentCount,
+    string CreatedUtc,
+    string ModifiedUtc,
+    string Confidence,
+    string ConfidenceReason,
+    IReadOnlyList<string> AlternateDataStreams)
+{
+    public string SizeFormatted => ByteSizeFormatter.Format(SizeBytes);
+    public string StorageKind => IsResident ? "Resident (MFT)" : $"Non-Resident ({ExtentCount} extent(s))";
+    public string AdsDisplay => AlternateDataStreams.Count == 0
+        ? "None"
+        : string.Join(", ", AlternateDataStreams);
+}
+
+public sealed record NtfsQuickScanResult(
+    string SessionId,
+    string FileSystem,
+    ulong MftRecordsScanned,
+    uint ClusterSizeBytes,
+    IReadOnlyList<DiscoveredFileDto> Files);
+
+public sealed record RecoverFileResult(
+    ulong BytesWritten,
+    string DestinationPath,
+    string FileName);
+
 public static class ByteSizeFormatter
 {
     private static readonly string[] Units = ["B", "KiB", "MiB", "GiB", "TiB", "PiB"];

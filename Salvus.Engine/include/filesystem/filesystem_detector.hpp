@@ -4,6 +4,7 @@
 
 #include <cstdint>
 #include <span>
+#include <string>
 
 namespace salvus::filesystem {
 
@@ -16,9 +17,11 @@ enum class FileSystemType {
     Raw
 };
 
+[[nodiscard]] std::string FileSystemTypeToString(FileSystemType type);
+
 class FileSystemDetector {
 public:
-    // Phase 3/5: Inspect boot sector / volume header to identify file system.
+    // Inspects a volume boot sector (>= 512 bytes) to identify the file system.
     [[nodiscard]] common::Result<FileSystemType> Detect(std::span<const std::uint8_t> bootSector) const;
 };
 

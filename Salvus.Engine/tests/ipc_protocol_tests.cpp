@@ -76,7 +76,7 @@ TEST(IpcProtocolTests, DispatchesEngineInfoAndCapabilities) {
     IpcRequest capReq{"cap-1", kIpcProtocolVersion, "get_capabilities", "{}"};
     const auto capRes = dispatcher.Dispatch(capReq);
     EXPECT_TRUE(capRes.response.ok);
-    EXPECT_NE(capRes.response.payloadJson.find("\"ntfsRecovery\":{\"implemented\":false"), std::string::npos);
+    EXPECT_NE(capRes.response.payloadJson.find("\"ntfsRecovery\":{\"implemented\":true"), std::string::npos);
 }
 
 TEST(IpcProtocolTests, RejectsUnknownCommandAndUnsupportedProtocol) {
