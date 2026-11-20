@@ -65,7 +65,7 @@ jobs:
       - name: Configure, build, and test Salvus.Engine (Release x64)
         shell: pwsh
         run: |
-          cmake -S Salvus.Engine -B Salvus.Engine/build -G "Visual Studio 17 2022" -A x64 -DSALVUS_BUILD_TESTS=ON
+          cmake -S Salvus.Engine -B Salvus.Engine/build -A x64 -DSALVUS_BUILD_TESTS=ON
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cmake --build Salvus.Engine/build --config Release --parallel
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
